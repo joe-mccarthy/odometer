@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)
 ![License](https://img.shields.io/github/license/joe-mccarthy/odometer?style=flat-square)
 ![Issues](https://img.shields.io/github/issues/joe-mccarthy/odometer?style=flat-square)
-![Last Commit](https://img.shields.io/github/last-commit/joe-mccarthy/odometer?style=flat-square)
+![Latest Commit](https://img.shields.io/github/last-commit/joe-mccarthy/odometer?style=flat-square)
 
 **odometer** is a local-first CLI application for tracking the true cost of owning a vehicle.
 
