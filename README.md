@@ -1,11 +1,11 @@
-# odometer
+# Odometer
 
 ![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)
 ![License](https://img.shields.io/github/license/joe-mccarthy/odometer?style=flat-square)
 ![Issues](https://img.shields.io/github/issues/joe-mccarthy/odometer?style=flat-square)
 ![Latest Commit](https://img.shields.io/github/last-commit/joe-mccarthy/odometer?style=flat-square)
 
-**odometer** is a local-first CLI application for tracking the true cost of owning a vehicle.
+**Odometer** is a local-first CLI application for tracking the true cost of owning a vehicle.
 
 It helps you answer a simple question:
 
@@ -15,7 +15,7 @@ Unlike basic fuel trackers, odometer records every ownership expense — fuel, s
 
 ## Philosophy
 
-odometer is designed to be:
+Odometer is designed to be:
 
 - Local-first
 - Privacy respecting
@@ -64,6 +64,6 @@ No cloud. No subscriptions. Your data stays with you.
 
 ## License
 
-odometer is open source and released under the GNU General Public License v3.0 (GPL-3.0).
+Odometer is open source and released under the GNU General Public License v3.0 (GPL-3.0).
 
 See the [LICENSE](LICENSE) file for details.
