@@ -191,6 +191,11 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# Odometer local data
+data/
+*.db
+*.db-journal
+
 # PyPI configuration file
 .pypirc
 
@@ -205,3 +210,5 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+.vscode

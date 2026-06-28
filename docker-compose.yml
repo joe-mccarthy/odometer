@@ -1,0 +1,9 @@
+services:
+  odometer:
+    build: .
+    environment:
+      ODOMETER_DB_PATH: /data/odometer.db
+    volumes:
+      - ./data:/data
+    stdin_open: true
+    tty: true
