@@ -10,6 +10,7 @@ class VehicleRepository:
     """Persistence operations for vehicles."""
 
     def __init__(self, session: Session) -> None:
+        """Store the SQLModel session used by all vehicle queries."""
         self.session = session
 
     def add(self, vehicle: Vehicle) -> Vehicle:
@@ -25,6 +26,12 @@ class VehicleRepository:
         self.session.commit()
         self.session.refresh(vehicle)
         return vehicle
+
+    def delete(self, vehicle: Vehicle, *, commit: bool = True) -> None:
+        """Delete a vehicle."""
+        self.session.delete(vehicle)
+        if commit:
+            self.session.commit()
 
     def get_by_id(self, vehicle_id: str) -> Vehicle | None:
         """Return a vehicle by id."""

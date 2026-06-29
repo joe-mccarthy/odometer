@@ -9,6 +9,7 @@ from textual.widgets import DataTable, Footer, Header, Static
 
 from odometer.cli.helpers import format_mpg, format_pence_per_mile
 from odometer.tui.app import OdometerTUI, VehicleDetailData
+from odometer.tui.screens.tables import replace_table_data
 from odometer.tui.widgets.metric_card import MetricCard
 from odometer.utils.formatting import format_optional_float, format_optional_int
 from odometer.utils.money import format_money
@@ -23,10 +24,12 @@ class VehicleDetailScreen(Screen[None]):
     ]
 
     def __init__(self, vehicle_id: str) -> None:
+        """Store the vehicle id whose detail view this screen renders."""
         super().__init__()
         self.vehicle_id = vehicle_id
 
     def compose(self) -> ComposeResult:
+        """Build the vehicle detail metrics, expense table, and fuel table."""
         yield Header(show_clock=True)
         with Container(id="content"):
             yield Static("", id="title", classes="section")
@@ -85,26 +88,33 @@ class VehicleDetailScreen(Screen[None]):
         self._refresh_fuel(data)
 
     def _refresh_expenses(self, data: VehicleDetailData) -> None:
+        """Rebuild the latest expenses table for the current vehicle."""
         detail = data
         table = self.query_one("#expenses-table", DataTable)
-        table.clear(columns=True)
-        table.add_columns("Date", "Category", "Amount", "Mileage", "Description")
-        for expense in detail.latest_expenses:
-            table.add_row(
+        table_rows = [
+            (
+                detail.vehicle.registration,
                 expense.date.isoformat(),
                 expense.category.value,
                 format_money(expense.amount_pence),
                 format_optional_int(expense.odometer_miles),
                 expense.description or "-",
             )
+            for expense in detail.latest_expenses
+        ]
+        replace_table_data(
+            table,
+            ("Registration", "Date", "Category", "Amount", "Mileage", "Description"),
+            table_rows,
+        )
 
     def _refresh_fuel(self, data: VehicleDetailData) -> None:
+        """Rebuild the latest fuel log table for the current vehicle."""
         detail = data
         table = self.query_one("#fuel-table", DataTable)
-        table.clear(columns=True)
-        table.add_columns("Date", "Mileage", "Litres", "Amount", "Fill", "Station")
-        for fuel_log in detail.latest_fuel_logs:
-            table.add_row(
+        table_rows = [
+            (
+                detail.vehicle.registration,
                 fuel_log.date.isoformat(),
                 f"{fuel_log.odometer_miles:,}",
                 f"{fuel_log.litres:.2f}",
@@ -112,3 +122,10 @@ class VehicleDetailScreen(Screen[None]):
                 "Full" if fuel_log.is_full_tank else "Partial",
                 fuel_log.station or "-",
             )
+            for fuel_log in detail.latest_fuel_logs
+        ]
+        replace_table_data(
+            table,
+            ("Registration", "Date", "Mileage", "Litres", "Amount", "Fill", "Station"),
+            table_rows,
+        )

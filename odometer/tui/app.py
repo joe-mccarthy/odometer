@@ -10,6 +10,7 @@ from textual.app import App
 
 from odometer.db.bootstrap import initialise_database
 from odometer.db.session import get_database_path, get_session
+from odometer.models.enums import VehicleStatus
 from odometer.models.expense import Expense
 from odometer.models.fuel import FuelLog
 from odometer.models.vehicle import Vehicle
@@ -24,11 +25,14 @@ from odometer.services.exceptions import CalculationUnavailableError
 from odometer.services.expense_service import ExpenseService
 from odometer.services.fuel_service import FuelService
 from odometer.services.summary_service import OverallSummary, SummaryService
-from odometer.services.vehicle_service import VehicleService
+from odometer.services.vehicle_service import VehicleDeletionResult, VehicleService
 from odometer.utils.dates import parse_optional_date
 from odometer.utils.money import parse_money_to_pence
 
 T = TypeVar("T")
+
+VEHICLE_CONTEXT_ALL = "__all__"
+VEHICLE_CONTEXT_ALL_LABEL = "All vehicles"
 
 
 @dataclass(frozen=True)
@@ -36,11 +40,13 @@ class DashboardData:
     """Data needed by the dashboard screen."""
 
     database_path: str
-    active_vehicle_count: int
+    vehicle_count: int
+    vehicle_context_label: str
     summary: OverallSummary
     average_running_cost_per_mile_pence: float | None
     latest_mpg: float | None
     monthly_spend: list[tuple[str, int]]
+    monthly_mileage: list[tuple[str, int]]
 
 
 @dataclass(frozen=True)
@@ -81,6 +87,7 @@ class FuelTableRow:
 class SummariesData:
     """Data needed by the summaries screen."""
 
+    vehicle_label: str
     categories: list[CategoryBreakdownItem]
     monthly: list[PeriodSummary]
     annual: list[PeriodSummary]
@@ -107,6 +114,14 @@ class OdometerTUI(App[None]):
         margin-bottom: 1;
     }
 
+    .charts {
+        layout: grid;
+        grid-size: 2;
+        grid-gutter: 1 2;
+        height: auto;
+        margin-bottom: 1;
+    }
+
     .metric-card {
         border: solid $primary;
         padding: 1;
@@ -126,6 +141,10 @@ class OdometerTUI(App[None]):
         margin-bottom: 1;
     }
 
+    Select {
+        margin-bottom: 1;
+    }
+
     #message {
         color: $error;
         height: auto;
@@ -142,6 +161,42 @@ class OdometerTUI(App[None]):
         ("q", "quit", "Quit"),
     ]
 
+    def __init__(self) -> None:
+        """Initialise app-level state shared by all TUI screens."""
+        super().__init__()
+        self.selected_vehicle_id: str | None = None
+
+    @property
+    def vehicle_context_value(self) -> str:
+        """Return the select value for the current vehicle context."""
+        return self.selected_vehicle_id or VEHICLE_CONTEXT_ALL
+
+    def set_vehicle_context(self, value: str) -> None:
+        """Set the current vehicle context from a select value."""
+        self.selected_vehicle_id = None if value == VEHICLE_CONTEXT_ALL else value
+
+    def get_vehicle_context_options(self) -> list[tuple[str, str]]:
+        """Return vehicle context options for screens with scoped data."""
+
+        def load(session: Session) -> list[tuple[str, str]]:
+            """Load all vehicles and convert them to select options."""
+            vehicles = VehicleService(session).list_vehicles(include_inactive=True)
+            return [(VEHICLE_CONTEXT_ALL_LABEL, VEHICLE_CONTEXT_ALL)] + [
+                (self._vehicle_context_label(vehicle), vehicle.id) for vehicle in vehicles
+            ]
+
+        return self._with_session(load)
+
+    def should_show_vehicle_context_select(self) -> bool:
+        """Return whether scoped screens need a visible vehicle context selector."""
+
+        def load(session: Session) -> bool:
+            """Check the fleet size that determines selector visibility."""
+            vehicles = VehicleService(session).list_vehicles(include_inactive=True)
+            return len(vehicles) != 1
+
+        return self._with_session(load)
+
     def on_mount(self) -> None:
         """Show the dashboard on startup."""
         self._install_screens()
@@ -151,12 +206,26 @@ class OdometerTUI(App[None]):
         """Return dashboard data."""
 
         def load(session: Session) -> DashboardData:
+            """Load and aggregate the current dashboard context."""
             vehicle_service = VehicleService(session)
             summary_service = SummaryService(session)
             calculation_service = CalculationService(session)
-            vehicles = vehicle_service.list_vehicles()
-            summary = summary_service.overall_summary()
-            metrics = calculation_service.vehicle_cost_metrics()
+            context_vehicles = vehicle_service.list_vehicles(include_inactive=True)
+            selected_vehicle_id = self._effective_vehicle_context_id(context_vehicles)
+            include_inactive = selected_vehicle_id is None
+            vehicles = self._vehicles_for_context(
+                vehicle_service,
+                selected_vehicle_id=selected_vehicle_id,
+                context_vehicles=context_vehicles,
+            )
+            summary = summary_service.overall_summary(
+                vehicle_identifier=selected_vehicle_id,
+                include_inactive=include_inactive,
+            )
+            metrics = calculation_service.vehicle_cost_metrics(
+                selected_vehicle_id,
+                include_inactive=include_inactive,
+            )
             total_miles = sum(row.miles_driven for row in metrics)
             total_cost = sum(row.running_cost_pence for row in metrics)
             average_cpm = (
@@ -165,19 +234,33 @@ class OdometerTUI(App[None]):
                 else None
             )
             latest_mpg = self._latest_available_mpg(calculation_service, vehicles)
-            monthly = summary_service.monthly_summary(year=date.today().year)
+            monthly = summary_service.monthly_summary(
+                vehicle_identifier=selected_vehicle_id,
+                year=date.today().year,
+                include_inactive=include_inactive,
+            )
             monthly_spend = [
                 (row.period[5:], row.total_spend_pence)
                 for row in monthly
                 if row.total_spend_pence > 0
             ][-6:]
+            monthly_mileage = [
+                (row.period[5:], row.miles_driven)
+                for row in monthly
+                if row.miles_driven is not None and row.miles_driven > 0
+            ][-6:]
             return DashboardData(
                 database_path=str(get_database_path()),
-                active_vehicle_count=len(vehicles),
+                vehicle_count=len(vehicles),
+                vehicle_context_label=self._context_label_for_vehicles(
+                    vehicles,
+                    selected_vehicle_id,
+                ),
                 summary=summary,
                 average_running_cost_per_mile_pence=average_cpm,
                 latest_mpg=latest_mpg,
                 monthly_spend=monthly_spend,
+                monthly_mileage=monthly_mileage,
             )
 
         return self._with_session(load)
@@ -186,6 +269,7 @@ class OdometerTUI(App[None]):
         """Return vehicle overview rows."""
 
         def load(session: Session) -> list[VehicleOverviewRow]:
+            """Load cost metrics for the vehicle overview table."""
             calculations = CalculationService(session)
             return [VehicleOverviewRow(metrics=row) for row in calculations.vehicle_cost_metrics()]
 
@@ -195,6 +279,7 @@ class OdometerTUI(App[None]):
         """Return vehicle detail data."""
 
         def load(session: Session) -> VehicleDetailData:
+            """Load one vehicle plus its latest costs, expenses, fuel, and MPG."""
             vehicle = VehicleService(session).get_vehicle(vehicle_id)
             calculations = CalculationService(session)
             metrics = calculations.vehicle_cost_metrics(vehicle.id)[0]
@@ -224,8 +309,15 @@ class OdometerTUI(App[None]):
         """Return latest expenses."""
 
         def load(session: Session) -> list[ExpenseTableRow]:
+            """Load visible expenses and attach display registrations."""
             vehicle_service = VehicleService(session)
-            expenses = ExpenseService(session).list_expenses(limit=200)
+            selected_vehicle_id = self._effective_vehicle_context_id(
+                vehicle_service.list_vehicles(include_inactive=True)
+            )
+            expenses = ExpenseService(session).list_expenses(
+                vehicle_identifier=selected_vehicle_id,
+                limit=200,
+            )
             return [
                 ExpenseTableRow(
                     expense=expense,
@@ -240,8 +332,15 @@ class OdometerTUI(App[None]):
         """Return latest fuel logs."""
 
         def load(session: Session) -> list[FuelTableRow]:
+            """Load visible fuel logs and attach display registrations."""
             vehicle_service = VehicleService(session)
-            fuel_logs = FuelService(session).list_fuel_logs(limit=200)
+            selected_vehicle_id = self._effective_vehicle_context_id(
+                vehicle_service.list_vehicles(include_inactive=True)
+            )
+            fuel_logs = FuelService(session).list_fuel_logs(
+                vehicle_identifier=selected_vehicle_id,
+                limit=200,
+            )
             return [
                 FuelTableRow(
                     fuel_log=fuel_log,
@@ -256,11 +355,31 @@ class OdometerTUI(App[None]):
         """Return summary screen data."""
 
         def load(session: Session) -> SummariesData:
+            """Load category, monthly, and annual summaries for the context."""
             service = SummaryService(session)
+            vehicle_service = VehicleService(session)
+            selected_vehicle_id = self._effective_vehicle_context_id(
+                vehicle_service.list_vehicles(include_inactive=True)
+            )
+            include_inactive = selected_vehicle_id is None
+            vehicle_label = VEHICLE_CONTEXT_ALL_LABEL
+            if selected_vehicle_id is not None:
+                vehicle_label = vehicle_service.get_vehicle(selected_vehicle_id).registration
             return SummariesData(
-                categories=service.category_breakdown(),
-                monthly=service.monthly_summary(year=date.today().year),
-                annual=service.annual_summary(),
+                vehicle_label=vehicle_label,
+                categories=service.category_breakdown(
+                    vehicle_identifier=selected_vehicle_id,
+                    include_inactive=include_inactive,
+                ),
+                monthly=service.monthly_summary(
+                    vehicle_identifier=selected_vehicle_id,
+                    year=date.today().year,
+                    include_inactive=include_inactive,
+                ),
+                annual=service.annual_summary(
+                    vehicle_identifier=selected_vehicle_id,
+                    include_inactive=include_inactive,
+                ),
             )
 
         return self._with_session(load)
@@ -269,6 +388,7 @@ class OdometerTUI(App[None]):
         """Add a vehicle from TUI form values."""
 
         def save(session: Session) -> None:
+            """Parse form fields and persist a new vehicle."""
             VehicleService(session).create_vehicle(
                 registration=values["registration"],
                 make=values.get("make") or None,
@@ -293,6 +413,7 @@ class OdometerTUI(App[None]):
         """Add an expense from TUI form values."""
 
         def save(session: Session) -> None:
+            """Parse form fields and persist a new expense."""
             ExpenseService(session).add_expense(
                 vehicle_identifier=values["vehicle"],
                 category=values["category"],
@@ -308,6 +429,7 @@ class OdometerTUI(App[None]):
         """Add a fuel log from TUI form values."""
 
         def save(session: Session) -> None:
+            """Parse form fields and persist a new fuel log."""
             FuelService(session).add_fuel_log(
                 vehicle_identifier=values["vehicle"],
                 litres=float(values["litres"]),
@@ -319,6 +441,36 @@ class OdometerTUI(App[None]):
             )
 
         self._with_session(save)
+
+    def delete_vehicle(self, vehicle_id: str) -> VehicleDeletionResult:
+        """Delete a vehicle and associated data from the TUI."""
+
+        def delete(session: Session) -> VehicleDeletionResult:
+            """Delete one vehicle and return the cascade summary."""
+            return VehicleService(session).delete_vehicle(vehicle_id)
+
+        result = self._with_session(delete)
+        if self.selected_vehicle_id == result.vehicle_id:
+            self.selected_vehicle_id = None
+        return result
+
+    def delete_expense(self, expense_id: str) -> None:
+        """Delete an expense from the TUI."""
+
+        def delete(session: Session) -> None:
+            """Delete one expense by id."""
+            ExpenseService(session).delete_expense(expense_id)
+
+        self._with_session(delete)
+
+    def delete_fuel_log(self, fuel_log_id: str) -> None:
+        """Delete a fuel log from the TUI."""
+
+        def delete(session: Session) -> None:
+            """Delete one fuel log by id."""
+            FuelService(session).delete_fuel_log(fuel_log_id)
+
+        self._with_session(delete)
 
     def action_show_dashboard(self) -> None:
         """Navigate to dashboard."""
@@ -355,14 +507,60 @@ class OdometerTUI(App[None]):
         self.install_screen(SummariesScreen(), name="summaries")
 
     def _with_session(self, callback: Callable[[Session], T]) -> T:
+        """Run a TUI data operation inside a fresh database session."""
         initialise_database()
         with get_session() as session:
             return callback(session)
+
+    def _vehicles_for_context(
+        self,
+        vehicle_service: VehicleService,
+        *,
+        selected_vehicle_id: str | None,
+        context_vehicles: list[Vehicle],
+    ) -> list[Vehicle]:
+        """Return the vehicle set represented by the effective TUI context."""
+        if selected_vehicle_id is not None:
+            return [vehicle_service.get_vehicle(selected_vehicle_id)]
+        return context_vehicles
+
+    def _effective_vehicle_context_id(self, vehicles: list[Vehicle]) -> str | None:
+        """Return the selected vehicle or the only vehicle in a single-vehicle database."""
+        if self.selected_vehicle_id is not None and any(
+            vehicle.id == self.selected_vehicle_id for vehicle in vehicles
+        ):
+            return self.selected_vehicle_id
+        if len(vehicles) == 1:
+            return vehicles[0].id
+        return None
+
+    def _context_label_for_vehicles(
+        self,
+        vehicles: list[Vehicle],
+        selected_vehicle_id: str | None,
+    ) -> str:
+        """Return a human-readable label for the current TUI context."""
+        if selected_vehicle_id is None and len(vehicles) != 1:
+            return VEHICLE_CONTEXT_ALL_LABEL
+        return self._vehicle_context_label(vehicles[0]) if vehicles else VEHICLE_CONTEXT_ALL_LABEL
+
+    @staticmethod
+    def _vehicle_context_label(vehicle: Vehicle) -> str:
+        """Return the selector label for one vehicle."""
+        make_model = " ".join(part for part in [vehicle.make, vehicle.model] if part)
+        detail = vehicle.nickname or make_model
+        label = vehicle.registration
+        if detail:
+            label = f"{label} ({detail})"
+        if vehicle.status is not VehicleStatus.ACTIVE:
+            label = f"{label} - {vehicle.status.value}"
+        return label
 
     @staticmethod
     def _latest_available_mpg(
         calculation_service: CalculationService, vehicles: list[Vehicle]
     ) -> float | None:
+        """Return the first latest MPG value available for the current context."""
         for vehicle in vehicles:
             try:
                 return calculation_service.mpg_stats(vehicle.id).latest_mpg

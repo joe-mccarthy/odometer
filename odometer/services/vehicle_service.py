@@ -1,20 +1,35 @@
 """Vehicle service."""
 
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
 from sqlmodel import Session
 
 from odometer.models.enums import VehicleStatus
 from odometer.models.vehicle import Vehicle
+from odometer.repositories.expense_repository import ExpenseRepository
+from odometer.repositories.fuel_repository import FuelRepository
 from odometer.repositories.vehicle_repository import VehicleRepository
 from odometer.services.exceptions import DuplicateActiveVehicleError, VehicleNotFoundError
 from odometer.utils.registration import normalise_registration
+
+
+@dataclass(frozen=True)
+class VehicleDeletionResult:
+    """Result of deleting a vehicle and its associated data."""
+
+    vehicle_id: str
+    registration: str
+    expense_count: int
+    fuel_log_count: int
 
 
 class VehicleService:
     """Business logic for vehicles."""
 
     def __init__(self, session: Session) -> None:
+        """Create repository dependencies for vehicle operations."""
+        self.session = session
         self.repository = VehicleRepository(session)
 
     def create_vehicle(
@@ -107,3 +122,25 @@ class VehicleService:
         vehicle.status = VehicleStatus.SOLD
         vehicle.updated_at = datetime.now(UTC)
         return self.repository.save(vehicle)
+
+    def delete_vehicle(self, identifier: str) -> VehicleDeletionResult:
+        """Delete a vehicle and all associated expenses and fuel logs."""
+        vehicle = self.get_vehicle(identifier)
+        vehicle_id = vehicle.id
+        registration = vehicle.registration
+        expense_count = ExpenseRepository(self.session).delete_for_vehicle(
+            vehicle_id,
+            commit=False,
+        )
+        fuel_log_count = FuelRepository(self.session).delete_for_vehicle(
+            vehicle_id,
+            commit=False,
+        )
+        self.repository.delete(vehicle, commit=False)
+        self.session.commit()
+        return VehicleDeletionResult(
+            vehicle_id=vehicle_id,
+            registration=registration,
+            expense_count=expense_count,
+            fuel_log_count=fuel_log_count,
+        )

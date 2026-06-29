@@ -1,11 +1,16 @@
 # Odometer
 
-![Python](https://img.shields.io/badge/python-3.12+-blue?style=flat-square)
-![License](https://img.shields.io/github/license/joe-mccarthy/odometer?style=flat-square)
-![Issues](https://img.shields.io/github/issues/joe-mccarthy/odometer?style=flat-square)
-![Latest Commit](https://img.shields.io/github/last-commit/joe-mccarthy/odometer?style=flat-square)
+[![CI](https://img.shields.io/github/actions/workflow/status/joe-mccarthy/odometer/ci.yml?branch=main&label=ci)](https://github.com/joe-mccarthy/odometer/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/github/actions/workflow/status/joe-mccarthy/odometer/coverage.yml?branch=main&label=coverage)](https://github.com/joe-mccarthy/odometer/actions/workflows/coverage.yml)
+[![Python](https://img.shields.io/badge/python-3.12%2B-3776AB)](pyproject.toml)
+[![Release](https://img.shields.io/github/v/release/joe-mccarthy/odometer?label=release)](https://github.com/joe-mccarthy/odometer/releases)
+[![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
+[![Docker](https://img.shields.io/badge/docker-supported-2496ED)](Dockerfile)
 
 **Odometer** is a local-first CLI and TUI application for tracking the true cost of owning a vehicle.
+
+> Status: v0.1.0 is the first GitHub-only testing release. Odometer is still
+> early-stage software and is not published to PyPI yet.
 
 It helps you answer a simple question:
 
@@ -27,7 +32,7 @@ Odometer is designed to be:
 
 No cloud. No accounts. No subscriptions. Your data stays with you.
 
-## Features Implemented
+## v0.1.0 Features
 
 - Vehicle management by UK registration
 - Expense logging by category
@@ -43,14 +48,14 @@ No cloud. No accounts. No subscriptions. Your data stays with you.
 - Textual TUI dashboard, tables, summaries, and terminal bar charts
 - Docker and Docker Compose support
 
-## Install Locally with Poetry
+## Run Locally from Source
 
 ```bash
 poetry install
 poetry run odometer --help
 ```
 
-Initialise the database:
+Initialise a local development database:
 
 ```bash
 poetry run odometer init
@@ -112,9 +117,12 @@ poetry run odometer vehicle show AB12CDE
 poetry run odometer vehicle set-fuel-tank AB12CDE --litres 55
 poetry run odometer vehicle archive AB12CDE
 poetry run odometer vehicle sold AB12CDE
+poetry run odometer vehicle delete AB12CDE
 
 poetry run odometer expense list --vehicle AB12CDE
+poetry run odometer expense delete EXPENSE_ID
 poetry run odometer fuel list --vehicle AB12CDE
+poetry run odometer fuel delete FUEL_LOG_ID
 
 poetry run odometer summary
 poetry run odometer summary monthly --vehicle AB12CDE --year 2026
@@ -143,9 +151,14 @@ The TUI includes:
 - Expense table
 - Fuel log table
 - Summary tables
-- Monthly spend bar charts
+- Monthly spend and mileage bar charts
 
-Use the footer shortcuts to move between screens. Press `a` on vehicle, expense, or fuel screens to add records.
+Use the footer shortcuts to move between screens. When more than one vehicle exists,
+dashboard, expense, fuel, and summary screens include a vehicle context selector so you
+can switch between one vehicle and all vehicles. With a single vehicle, Odometer hides
+that selector and scopes those screens to the only vehicle automatically. Press `a` on
+vehicle, expense, or fuel screens to add records. Press `delete` on vehicle, expense, or
+fuel screens to delete the selected row after confirmation.
 
 ## Docker Usage
 
@@ -217,6 +230,9 @@ poetry run mypy odometer
 poetry run pytest
 ```
 
+For a walkthrough of the package structure, data flow, business rules, and tests,
+see [docs/CODEBASE.md](docs/CODEBASE.md).
+
 Generate coverage reports:
 
 ```bash
@@ -239,44 +255,30 @@ Contribution guidelines:
 - Run formatting, linting, type checking, and tests before opening a pull request.
 - Update this README or the changelog when behavior, commands, or release process details change.
 
-GitHub Actions run pull request checks for formatting, linting, typing, tests, coverage artifacts, and Docker builds. Releases are created by pushing a version tag in the form `vX.Y.Z`; the tag version must match the version in `pyproject.toml`.
+GitHub Actions run pull request checks for formatting, linting, typing, tests,
+coverage artifacts, and Docker builds. Releases are created as GitHub Releases
+from version tags in the form `vX.Y.Z`; the tag version must match the version
+in `pyproject.toml`.
 
-## Roadmap
+Odometer is GitHub-only while release testing is in progress. The release
+workflow builds distribution artifacts, uploads checksums, and publishes a
+GitHub Release. It does not publish to PyPI.
 
-### v0.1 - Core CLI
+## v0.1.0 Scope
 
-Implemented:
+The v0.1.0 release includes:
 
-- Vehicle management
-- Expense logging
-- Fuel logging
-- Basic summaries
-- SQLite backend
-- Docker support
-
-### v0.2 - Calculations Engine
-
-Implemented:
-
-- Cost per mile
-- UK MPG fuel economy
-- Rolling averages
-- Category breakdowns
-- Monthly and annual summaries
-
-### v0.3 - TUI Interface
-
-Implemented:
-
-- Interactive dashboard
-- Vehicle overview
-- Expense tables
-- Fuel log table
-- Cost summaries
-- Terminal-based cost graphs
+- Core CLI commands for vehicles, expenses, fuel logs, summaries, and calculations.
+- SQLite-backed local storage with Docker support.
+- Running and ownership cost calculations, UK MPG, rolling averages, category
+  breakdowns, and monthly or annual summaries.
+- Textual TUI screens for dashboard, vehicles, vehicle detail, expenses, fuel,
+  and summaries.
+- Vehicle-scoped TUI context, confirmed deletion flows, and terminal bar charts
+  for monthly spend and mileage.
 
 ## Licence
 
-Odometer is open source and released under the GNU General Public License v3.0 (GPL-3.0).
+Odometer is open source and licensed under the GNU General Public License v3.0 (GPL-3.0).
 
 See the [LICENSE](LICENSE) file for details.

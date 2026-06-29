@@ -85,6 +85,7 @@ def list_fuel(
         return
 
     table = Table(title="Fuel logs")
+    table.add_column("ID")
     table.add_column("Date")
     table.add_column("Vehicle")
     table.add_column("Mileage", justify="right")
@@ -96,6 +97,7 @@ def list_fuel(
 
     for fuel_log in fuel_logs:
         table.add_row(
+            fuel_log.id,
             fuel_log.date.isoformat(),
             registrations[fuel_log.vehicle_id],
             f"{fuel_log.odometer_miles:,}",
@@ -106,3 +108,21 @@ def list_fuel(
             fuel_log.station or "-",
         )
     console.print(table)
+
+
+@app.command("delete")
+def delete_fuel(
+    fuel_log_id: Annotated[str, typer.Argument(help="Fuel log id.")],
+) -> None:
+    """Delete a fuel log."""
+    if not typer.confirm(f"Delete fuel log {fuel_log_id}?"):
+        console.print("Delete cancelled.")
+        return
+
+    try:
+        with cli_session() as session:
+            FuelService(session).delete_fuel_log(fuel_log_id)
+    except OdometerError as exc:
+        handle_expected_error(exc)
+
+    console.print(f"Deleted fuel log {fuel_log_id}.")

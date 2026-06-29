@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "odometer"
-version = "0.3.0"
+version = "0.1.0"
 description = "A local-first CLI/TUI application for tracking the true cost of vehicle ownership."
 authors = ["Joe McCarthy"]
 license = "GPL-3.0-only"
@@ -38,7 +38,7 @@ target-version = "py312"
 select = ["B", "E", "F", "I", "UP"]
 
 [tool.pytest.ini_options]
-addopts = "--cov=odometer --cov-report=term-missing"
+addopts = "--cov=odometer --cov-report=term-missing --cov-fail-under=90"
 testpaths = ["tests"]
 
 [tool.mypy]

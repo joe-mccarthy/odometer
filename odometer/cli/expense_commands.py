@@ -88,6 +88,7 @@ def list_expenses(
         return
 
     table = Table(title="Expenses")
+    table.add_column("ID")
     table.add_column("Date")
     table.add_column("Vehicle")
     table.add_column("Category")
@@ -98,6 +99,7 @@ def list_expenses(
 
     for expense in expenses:
         table.add_row(
+            expense.id,
             expense.date.isoformat(),
             registrations[expense.vehicle_id],
             expense.category.value,
@@ -107,3 +109,21 @@ def list_expenses(
             expense.vendor or "-",
         )
     console.print(table)
+
+
+@app.command("delete")
+def delete_expense(
+    expense_id: Annotated[str, typer.Argument(help="Expense id.")],
+) -> None:
+    """Delete an expense."""
+    if not typer.confirm(f"Delete expense {expense_id}?"):
+        console.print("Delete cancelled.")
+        return
+
+    try:
+        with cli_session() as session:
+            ExpenseService(session).delete_expense(expense_id)
+    except OdometerError as exc:
+        handle_expected_error(exc)
+
+    console.print(f"Deleted expense {expense_id}.")

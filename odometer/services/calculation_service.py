@@ -43,7 +43,7 @@ class VehicleCostMetrics:
 
 @dataclass(frozen=True)
 class MPGSegment:
-    """A full-to-full fuel economy segment."""
+    """A closed fuel economy segment between two full tanks."""
 
     start_odometer_miles: int
     end_odometer_miles: int
@@ -100,6 +100,7 @@ class CalculationService:
     """Reusable calculations over vehicle, expense, and fuel data."""
 
     def __init__(self, session: Session) -> None:
+        """Create repository and service dependencies for calculation queries."""
         self.expense_repository = ExpenseRepository(session)
         self.fuel_repository = FuelRepository(session)
         self.vehicle_service = VehicleService(session)
@@ -144,6 +145,8 @@ class CalculationService:
         )
 
         if fuel_log_list:
+            # Dedicated fuel logs include litres and odometer readings, so they
+            # become the fuel source of truth whenever they are present.
             fuel_spend = fuel_log_total
         else:
             fuel_spend = fuel_expense_total
@@ -171,36 +174,45 @@ class CalculationService:
 
     @staticmethod
     def mpg_segments(fuel_logs: Iterable[FuelLog]) -> list[MPGSegment]:
-        """Calculate UK MPG segments from full-to-full fuel logs.
+        """Calculate UK MPG segments closed by full-to-full fuel logs.
 
-        Partial fills are included in fuel spend elsewhere but excluded from MPG calculation
-        in this first implementation.
+        Partial fills after the starting full tank are accumulated. A segment is only emitted
+        when a later full tank confirms the end fuel level matches the starting fuel level.
         """
         sorted_logs = sorted(fuel_logs, key=lambda log: (log.odometer_miles, log.date))
-        previous_full: FuelLog | None = None
+        start_full: FuelLog | None = None
+        litres_since_start = 0.0
         segments: list[MPGSegment] = []
 
         for fuel_log in sorted_logs:
-            if not fuel_log.is_full_tank:
-                continue
-            if previous_full is None:
-                previous_full = fuel_log
+            if start_full is None:
+                # The first full tank establishes the baseline. The next full
+                # tank is the first point where consumption can be measured.
+                if fuel_log.is_full_tank:
+                    start_full = fuel_log
+                    litres_since_start = 0.0
                 continue
 
-            miles = fuel_log.odometer_miles - previous_full.odometer_miles
-            if miles > 0 and fuel_log.litres > 0:
-                uk_mpg = miles / (fuel_log.litres / IMPERIAL_GALLON_LITRES)
+            litres_since_start += fuel_log.litres
+
+            if not fuel_log.is_full_tank:
+                continue
+
+            miles = fuel_log.odometer_miles - start_full.odometer_miles
+            if miles > 0 and litres_since_start > 0:
+                uk_mpg = miles / (litres_since_start / IMPERIAL_GALLON_LITRES)
                 segments.append(
                     MPGSegment(
-                        start_odometer_miles=previous_full.odometer_miles,
+                        start_odometer_miles=start_full.odometer_miles,
                         end_odometer_miles=fuel_log.odometer_miles,
                         miles=miles,
-                        litres=fuel_log.litres,
+                        litres=litres_since_start,
                         uk_mpg=uk_mpg,
                         date=fuel_log.date,
                     )
                 )
-            previous_full = fuel_log
+            start_full = fuel_log
+            litres_since_start = 0.0
 
         return segments
 
@@ -258,10 +270,10 @@ class CalculationService:
         ]
 
     def vehicle_cost_metrics(
-        self, vehicle_identifier: str | None = None
+        self, vehicle_identifier: str | None = None, *, include_inactive: bool = False
     ) -> list[VehicleCostMetrics]:
-        """Return cost metrics for one vehicle or all active vehicles."""
-        vehicles = self._resolve_vehicles(vehicle_identifier)
+        """Return cost metrics for one vehicle or a vehicle collection."""
+        vehicles = self._resolve_vehicles(vehicle_identifier, include_inactive=include_inactive)
         return [self._vehicle_cost_metrics(vehicle) for vehicle in vehicles]
 
     def mpg_stats(self, vehicle_identifier: str) -> MPGStats:
@@ -276,9 +288,10 @@ class CalculationService:
         vehicle_identifier: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        include_inactive: bool = False,
     ) -> list[CategoryBreakdownItem]:
-        """Return category breakdown for a vehicle or active fleet."""
-        vehicles = self._resolve_vehicles(vehicle_identifier)
+        """Return category breakdown for one vehicle or a vehicle collection."""
+        vehicles = self._resolve_vehicles(vehicle_identifier, include_inactive=include_inactive)
         breakdowns: dict[ExpenseCategory, tuple[int, int]] = defaultdict(lambda: (0, 0))
 
         for vehicle in vehicles:
@@ -314,11 +327,15 @@ class CalculationService:
         ]
 
     def monthly_summaries(
-        self, *, vehicle_identifier: str | None = None, year: int | None = None
+        self,
+        *,
+        vehicle_identifier: str | None = None,
+        year: int | None = None,
+        include_inactive: bool = False,
     ) -> list[PeriodSummary]:
         """Return monthly spend summaries."""
         selected_year = year or date.today().year
-        vehicles = self._resolve_vehicles(vehicle_identifier)
+        vehicles = self._resolve_vehicles(vehicle_identifier, include_inactive=include_inactive)
         summaries: list[PeriodSummary] = []
         for month in range(1, 13):
             start = date(selected_year, month, 1)
@@ -326,9 +343,11 @@ class CalculationService:
             summaries.append(self._period_summary(vehicles, start, end, start.strftime("%Y-%m")))
         return summaries
 
-    def annual_summaries(self, *, vehicle_identifier: str | None = None) -> list[PeriodSummary]:
+    def annual_summaries(
+        self, *, vehicle_identifier: str | None = None, include_inactive: bool = False
+    ) -> list[PeriodSummary]:
         """Return annual spend summaries for years with data."""
-        vehicles = self._resolve_vehicles(vehicle_identifier)
+        vehicles = self._resolve_vehicles(vehicle_identifier, include_inactive=include_inactive)
         years = self._years_with_data(vehicles)
         summaries: list[PeriodSummary] = []
         for year in years:
@@ -343,9 +362,10 @@ class CalculationService:
         vehicle_identifier: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        include_inactive: bool = False,
     ) -> RollingAverages:
         """Return rolling monthly average spend."""
-        vehicles = self._resolve_vehicles(vehicle_identifier)
+        vehicles = self._resolve_vehicles(vehicle_identifier, include_inactive=include_inactive)
         transactions = self._transaction_dates(vehicles, date_from=date_from, date_to=date_to)
         if not transactions:
             return RollingAverages(0, 0, 0, 0)
@@ -370,6 +390,7 @@ class CalculationService:
         )
 
     def _vehicle_cost_metrics(self, vehicle: Vehicle) -> VehicleCostMetrics:
+        """Calculate the complete cost row used by vehicle lists and details."""
         expenses = self.expense_repository.list(vehicle_id=vehicle.id, limit=None)
         fuel_logs = self.fuel_repository.list(vehicle_id=vehicle.id, limit=None)
         latest_mileage = self.latest_known_mileage(vehicle, expenses, fuel_logs)
@@ -386,14 +407,18 @@ class CalculationService:
             ownership_cost_per_mile_pence=self.cost_per_mile_pence(ownership_cost, miles),
         )
 
-    def _resolve_vehicles(self, vehicle_identifier: str | None) -> list[Vehicle]:
+    def _resolve_vehicles(
+        self, vehicle_identifier: str | None, *, include_inactive: bool = False
+    ) -> list[Vehicle]:
+        """Return a single resolved vehicle or the current vehicle collection."""
         if vehicle_identifier is not None:
             return [self.vehicle_service.get_vehicle(vehicle_identifier)]
-        return self.vehicle_service.list_vehicles(include_inactive=False)
+        return self.vehicle_service.list_vehicles(include_inactive=include_inactive)
 
     def _period_summary(
         self, vehicles: list[Vehicle], start: date, end: date, period: str
     ) -> PeriodSummary:
+        """Aggregate spend and mileage for a date-bounded period."""
         total_spend = 0
         fuel_spend = 0
         expense_spend = 0
@@ -418,6 +443,8 @@ class CalculationService:
             fuel_spend += spend.fuel_spend_pence
             expense_spend += spend.expense_spend_pence
 
+            # Mileage is calculated per vehicle so a vehicle with no reading in
+            # the period does not inherit miles from another vehicle.
             miles = self._period_miles_for_vehicle(vehicle, start, end)
             if miles is not None:
                 has_mileage = True
@@ -434,6 +461,12 @@ class CalculationService:
         )
 
     def _period_miles_for_vehicle(self, vehicle: Vehicle, start: date, end: date) -> int | None:
+        """Return miles driven in a period from odometer readings.
+
+        The baseline is the latest reading before the period, falling back to
+        the vehicle initial mileage. The period mileage is the difference
+        between that baseline and the latest reading inside the period.
+        """
         all_expenses = self.expense_repository.list(
             vehicle_id=vehicle.id, limit=None, ascending=True
         )
@@ -464,6 +497,7 @@ class CalculationService:
         return max(latest - baseline, 0)
 
     def _years_with_data(self, vehicles: list[Vehicle]) -> list[int]:
+        """Return years that have transactions, or the current year if empty."""
         years = sorted(
             {transaction_date.year for transaction_date in self._transaction_dates(vehicles)}
         )
@@ -476,6 +510,7 @@ class CalculationService:
         date_from: date | None = None,
         date_to: date | None = None,
     ) -> list[date]:
+        """Return expense and fuel dates for a vehicle collection."""
         dates: list[date] = []
         for vehicle in vehicles:
             dates.extend(
@@ -500,14 +535,17 @@ class CalculationService:
 
 
 def _month_start(value: date) -> date:
+    """Return the first day of the month containing a date."""
     return date(value.year, value.month, 1)
 
 
 def _month_end(value: date) -> date:
+    """Return the last day of the month containing a date."""
     return _add_months(_month_start(value), 1) - timedelta(days=1)
 
 
 def _add_months(value: date, months: int) -> date:
+    """Add whole months while keeping the result on the first day."""
     month_index = value.month - 1 + months
     year = value.year + month_index // 12
     month = month_index % 12 + 1
@@ -515,6 +553,7 @@ def _add_months(value: date, months: int) -> date:
 
 
 def _trailing_average(values: list[int], window: int) -> int:
+    """Return the rounded average of the last N values."""
     if not values:
         return 0
     selected = values[-window:]

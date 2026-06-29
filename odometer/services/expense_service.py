@@ -7,7 +7,7 @@ from sqlmodel import Session
 from odometer.models.enums import ExpenseCategory
 from odometer.models.expense import Expense
 from odometer.repositories.expense_repository import ExpenseRepository
-from odometer.services.exceptions import InvalidExpenseError
+from odometer.services.exceptions import ExpenseNotFoundError, InvalidExpenseError
 from odometer.services.vehicle_service import VehicleService
 
 
@@ -15,6 +15,7 @@ class ExpenseService:
     """Business logic for expenses."""
 
     def __init__(self, session: Session) -> None:
+        """Create repository dependencies for expense operations."""
         self.repository = ExpenseRepository(session)
         self.vehicle_service = VehicleService(session)
 
@@ -75,8 +76,17 @@ class ExpenseService:
             ascending=ascending,
         )
 
+    def delete_expense(self, expense_id: str) -> Expense:
+        """Delete an expense by id."""
+        expense = self.repository.get_by_id(expense_id)
+        if expense is None:
+            raise ExpenseNotFoundError(f"Expense not found: {expense_id}.")
+        self.repository.delete(expense)
+        return expense
+
     @staticmethod
     def _parse_category(category: ExpenseCategory | str) -> ExpenseCategory:
+        """Convert enum or user-entered category text into `ExpenseCategory`."""
         if isinstance(category, ExpenseCategory):
             return category
         try:

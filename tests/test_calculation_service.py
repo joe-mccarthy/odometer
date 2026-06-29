@@ -13,6 +13,7 @@ from odometer.services.vehicle_service import VehicleService
 
 
 def test_costs_mpg_breakdowns_and_period_summaries(session: Session) -> None:
+    """Cover cost metrics, MPG, category totals, period summaries, and rolling averages."""
     vehicle = VehicleService(session).create_vehicle(
         registration="AB12 CDE",
         initial_mileage=10_000,
@@ -71,7 +72,10 @@ def test_costs_mpg_breakdowns_and_period_summaries(session: Session) -> None:
 
     mpg = service.mpg_stats(vehicle.id)
     assert mpg.segment_count == 1
-    assert mpg.latest_mpg == pytest.approx(300 / (45 / 4.54609))
+    assert mpg.latest_mpg == pytest.approx(300 / (65 / 4.54609))
+    fuel_logs = FuelService(session).list_fuel_logs(vehicle_identifier=vehicle.id)
+    segment = service.mpg_segments(fuel_logs)
+    assert segment[0].litres == 65
 
     breakdown = service.category_breakdown_for_scope(vehicle_identifier=vehicle.id)
     assert breakdown[0].category == ExpenseCategory.SERVICE

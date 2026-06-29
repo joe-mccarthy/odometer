@@ -186,3 +186,27 @@ def mark_vehicle_sold(
     except OdometerError as exc:
         handle_expected_error(exc)
     console.print(f"Marked vehicle [bold]{vehicle.registration}[/bold] as sold.")
+
+
+@app.command("delete")
+def delete_vehicle(
+    registration: Annotated[str, typer.Argument(help="Registration or vehicle id.")],
+) -> None:
+    """Delete a vehicle and all associated data."""
+    try:
+        with cli_session() as session:
+            service = VehicleService(session)
+            vehicle = service.get_vehicle(registration)
+            if not typer.confirm(
+                f"Delete vehicle {vehicle.registration} and all associated expenses and fuel logs?"
+            ):
+                console.print("Delete cancelled.")
+                return
+            result = service.delete_vehicle(vehicle.id)
+    except OdometerError as exc:
+        handle_expected_error(exc)
+
+    console.print(
+        f"Deleted vehicle [bold]{result.registration}[/bold], "
+        f"{result.expense_count} expenses, and {result.fuel_log_count} fuel logs."
+    )

@@ -11,6 +11,7 @@ from odometer.services.vehicle_service import VehicleService
 
 
 def test_overall_summary(session: Session) -> None:
+    """Verify overall summaries aggregate spend, counts, mileage, and cost per mile."""
     vehicle = VehicleService(session).create_vehicle(
         registration="AB12 CDE",
         initial_mileage=42_000,

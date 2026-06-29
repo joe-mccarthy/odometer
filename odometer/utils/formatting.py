@@ -13,6 +13,11 @@ def format_optional_int(value: int | None) -> str:
     return f"{value:,}" if value is not None else "-"
 
 
+def format_miles(value: int) -> str:
+    """Format miles."""
+    return f"{value:,} mi"
+
+
 def format_optional_float(value: float | None, suffix: str = "", precision: int = 2) -> str:
     """Format an optional float."""
     if value is None:

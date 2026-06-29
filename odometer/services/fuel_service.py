@@ -6,7 +6,7 @@ from sqlmodel import Session
 
 from odometer.models.fuel import FuelLog
 from odometer.repositories.fuel_repository import FuelRepository
-from odometer.services.exceptions import InvalidFuelLogError
+from odometer.services.exceptions import FuelLogNotFoundError, InvalidFuelLogError
 from odometer.services.vehicle_service import VehicleService
 
 
@@ -14,6 +14,7 @@ class FuelService:
     """Business logic for fuel logs."""
 
     def __init__(self, session: Session) -> None:
+        """Create repository dependencies for fuel operations."""
         self.repository = FuelRepository(session)
         self.vehicle_service = VehicleService(session)
 
@@ -95,3 +96,11 @@ class FuelService:
             limit=limit,
             ascending=ascending,
         )
+
+    def delete_fuel_log(self, fuel_log_id: str) -> FuelLog:
+        """Delete a fuel log by id."""
+        fuel_log = self.repository.get_by_id(fuel_log_id)
+        if fuel_log is None:
+            raise FuelLogNotFoundError(f"Fuel log not found: {fuel_log_id}.")
+        self.repository.delete(fuel_log)
+        return fuel_log

@@ -6,12 +6,13 @@ import pytest
 from sqlmodel import Session
 
 from odometer.models.enums import ExpenseCategory
-from odometer.services.exceptions import InvalidExpenseError
+from odometer.services.exceptions import ExpenseNotFoundError, InvalidExpenseError
 from odometer.services.expense_service import ExpenseService
 from odometer.services.vehicle_service import VehicleService
 
 
 def test_add_and_list_expenses(session: Session) -> None:
+    """Verify expenses can be added and filtered by vehicle or category."""
     vehicle = VehicleService(session).create_vehicle(
         registration="AB12 CDE", initial_mileage=42_000
     )
@@ -32,7 +33,28 @@ def test_add_and_list_expenses(session: Session) -> None:
     assert service.list_expenses(category=ExpenseCategory.MOT) == []
 
 
+def test_delete_expense(session: Session) -> None:
+    """Verify deleting an expense removes it and rejects a repeated delete."""
+    vehicle = VehicleService(session).create_vehicle(
+        registration="AB12 CDE", initial_mileage=42_000
+    )
+    service = ExpenseService(session)
+    expense = service.add_expense(
+        vehicle_identifier=vehicle.id,
+        category="service",
+        amount_pence=24_999,
+        date_=date(2026, 1, 10),
+    )
+
+    service.delete_expense(expense.id)
+
+    assert service.list_expenses(vehicle_identifier=vehicle.id) == []
+    with pytest.raises(ExpenseNotFoundError):
+        service.delete_expense(expense.id)
+
+
 def test_add_fine_expense(session: Session) -> None:
+    """Verify free-text category input is parsed into the fine category."""
     vehicle = VehicleService(session).create_vehicle(
         registration="AB12 CDE", initial_mileage=42_000
     )
@@ -50,6 +72,7 @@ def test_add_fine_expense(session: Session) -> None:
 
 
 def test_reject_invalid_expense_amount(session: Session) -> None:
+    """Verify zero-value expenses are rejected."""
     vehicle = VehicleService(session).create_vehicle(
         registration="AB12 CDE", initial_mileage=42_000
     )
@@ -64,6 +87,7 @@ def test_reject_invalid_expense_amount(session: Session) -> None:
 
 
 def test_reject_expense_mileage_below_initial(session: Session) -> None:
+    """Verify expense mileage cannot be below the vehicle initial mileage."""
     vehicle = VehicleService(session).create_vehicle(
         registration="AB12 CDE", initial_mileage=42_000
     )

@@ -34,6 +34,7 @@ class SummaryService:
     """Business logic for spend summaries."""
 
     def __init__(self, session: Session) -> None:
+        """Create calculation and lookup dependencies for summary operations."""
         self.calculations = CalculationService(session)
         self.vehicle_service = VehicleService(session)
         self.expense_repository = self.calculations.expense_repository
@@ -45,9 +46,10 @@ class SummaryService:
         vehicle_identifier: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        include_inactive: bool = False,
     ) -> OverallSummary:
-        """Return an overall summary for a vehicle or active fleet."""
-        vehicles = self._resolve_vehicles(vehicle_identifier)
+        """Return an overall summary for one vehicle or a vehicle collection."""
+        vehicles = self._resolve_vehicles(vehicle_identifier, include_inactive=include_inactive)
         total_spend = 0
         fuel_spend = 0
         non_fuel_spend = 0
@@ -91,6 +93,7 @@ class SummaryService:
             vehicle_identifier=vehicle_identifier,
             date_from=date_from,
             date_to=date_to,
+            include_inactive=include_inactive,
         )
         ownership_cost = total_spend + purchase_total if has_purchase_price else None
         miles_driven = total_miles if has_miles else None
@@ -111,14 +114,27 @@ class SummaryService:
         )
 
     def monthly_summary(
-        self, *, vehicle_identifier: str | None = None, year: int | None = None
+        self,
+        *,
+        vehicle_identifier: str | None = None,
+        year: int | None = None,
+        include_inactive: bool = False,
     ) -> list[PeriodSummary]:
         """Return monthly spend summaries."""
-        return self.calculations.monthly_summaries(vehicle_identifier=vehicle_identifier, year=year)
+        return self.calculations.monthly_summaries(
+            vehicle_identifier=vehicle_identifier,
+            year=year,
+            include_inactive=include_inactive,
+        )
 
-    def annual_summary(self, *, vehicle_identifier: str | None = None) -> list[PeriodSummary]:
+    def annual_summary(
+        self, *, vehicle_identifier: str | None = None, include_inactive: bool = False
+    ) -> list[PeriodSummary]:
         """Return annual spend summaries."""
-        return self.calculations.annual_summaries(vehicle_identifier=vehicle_identifier)
+        return self.calculations.annual_summaries(
+            vehicle_identifier=vehicle_identifier,
+            include_inactive=include_inactive,
+        )
 
     def category_breakdown(
         self,
@@ -126,12 +142,14 @@ class SummaryService:
         vehicle_identifier: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        include_inactive: bool = False,
     ) -> list[CategoryBreakdownItem]:
         """Return category breakdown."""
         return self.calculations.category_breakdown_for_scope(
             vehicle_identifier=vehicle_identifier,
             date_from=date_from,
             date_to=date_to,
+            include_inactive=include_inactive,
         )
 
     def rolling_averages(
@@ -140,22 +158,28 @@ class SummaryService:
         vehicle_identifier: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        include_inactive: bool = False,
     ) -> RollingAverages:
         """Return rolling averages."""
         return self.calculations.rolling_averages(
             vehicle_identifier=vehicle_identifier,
             date_from=date_from,
             date_to=date_to,
+            include_inactive=include_inactive,
         )
 
-    def _resolve_vehicles(self, vehicle_identifier: str | None) -> list[Vehicle]:
+    def _resolve_vehicles(
+        self, vehicle_identifier: str | None, *, include_inactive: bool = False
+    ) -> list[Vehicle]:
+        """Return the single requested vehicle or the current summary fleet."""
         if vehicle_identifier is not None:
             return [self.vehicle_service.get_vehicle(vehicle_identifier)]
-        return self.vehicle_service.list_vehicles(include_inactive=False)
+        return self.vehicle_service.list_vehicles(include_inactive=include_inactive)
 
     def _miles_for_summary(
         self, vehicle: Vehicle, date_from: date | None, date_to: date | None
     ) -> int | None:
+        """Return lifetime or date-bounded mileage for an overall summary."""
         if date_from is None and date_to is None:
             expenses = self.expense_repository.list(vehicle_id=vehicle.id, limit=None)
             fuel_logs = self.fuel_repository.list(vehicle_id=vehicle.id, limit=None)

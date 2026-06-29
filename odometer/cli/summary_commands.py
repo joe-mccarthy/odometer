@@ -139,7 +139,7 @@ def mpg(
     table.add_row("Average", format_mpg(stats.average_mpg))
     table.add_row("Best", format_mpg(stats.best_mpg))
     table.add_row("Worst", format_mpg(stats.worst_mpg))
-    table.add_row("Usable full-to-full segments", str(stats.segment_count))
+    table.add_row("Closed full-to-full segments", str(stats.segment_count))
     console.print(table)
 
 
@@ -176,6 +176,7 @@ def cost_per_mile(
 
 
 def _print_overall_summary(result: OverallSummary) -> None:
+    """Render the aggregate summary as a Rich table for the CLI."""
     table = Table(title="Cost summary")
     table.add_column("Metric")
     table.add_column("Value", justify="right")
@@ -197,6 +198,7 @@ def _print_overall_summary(result: OverallSummary) -> None:
 
 
 def _print_period_table(title: str, rows: list[PeriodSummary]) -> None:
+    """Render monthly or annual period summaries as a Rich table."""
     table = Table(title=title)
     table.add_column("Period")
     table.add_column("Total", justify="right")

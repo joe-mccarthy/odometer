@@ -14,5 +14,6 @@ class MetricCard(Static):
         id: str | None = None,
         classes: str | None = None,
     ) -> None:
+        """Render a label and value pair inside a dashboard-style card."""
         super().__init__(f"[b]{label}[/b]\n{value}", id=id, classes=classes)
         self.add_class("metric-card")

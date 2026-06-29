@@ -12,6 +12,7 @@ class ExpenseRepository:
     """Persistence operations for expenses."""
 
     def __init__(self, session: Session) -> None:
+        """Store the SQLModel session used by all expense queries."""
         self.session = session
 
     def add(self, expense: Expense) -> Expense:
@@ -20,6 +21,10 @@ class ExpenseRepository:
         self.session.commit()
         self.session.refresh(expense)
         return expense
+
+    def get_by_id(self, expense_id: str) -> Expense | None:
+        """Return an expense by id."""
+        return self.session.get(Expense, expense_id)
 
     def list(
         self,
@@ -55,3 +60,18 @@ class ExpenseRepository:
         if limit is not None:
             statement = statement.limit(limit)
         return list(self.session.exec(statement).all())
+
+    def delete(self, expense: Expense, *, commit: bool = True) -> None:
+        """Delete an expense."""
+        self.session.delete(expense)
+        if commit:
+            self.session.commit()
+
+    def delete_for_vehicle(self, vehicle_id: str, *, commit: bool = True) -> int:
+        """Delete all expenses for a vehicle and return the count."""
+        expenses = self.list(vehicle_id=vehicle_id, limit=None)
+        for expense in expenses:
+            self.session.delete(expense)
+        if commit:
+            self.session.commit()
+        return len(expenses)
