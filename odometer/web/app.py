@@ -65,7 +65,12 @@ def wire(value: Any) -> Any:
     elif is_dataclass(value) and not isinstance(value, type):
         value = asdict(value)
     if isinstance(value, dict):
-        return {key: wire(item) for key, item in value.items()}
+        result = {key: wire(item) for key, item in value.items()}
+        # Keep numeric API contracts, with lossless companions for browser edit forms.
+        for key in ("total_cost_pence", "amount_pence"):
+            if key in value and isinstance(value[key], int):
+                result[key + "_exact"] = str(value[key])
+        return result
     if isinstance(value, (list, tuple)):
         return [wire(item) for item in value]
     if isinstance(value, datetime):
@@ -299,7 +304,7 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
     def update_fuel(
         fuel_id: str, body: FuelUpdate, db: Session = session_dependency
     ) -> JSONResponse:
-        values = body.model_dump(exclude={"fuel_tank_litres"})
+        values = body.model_dump(exclude={"fuel_tank_litres"}, exclude_unset=True)
         values["date_"] = values.pop("date")
         return resource(call(FuelService(db).update_fuel_log, fuel_log_id=fuel_id, **values))
 

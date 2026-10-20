@@ -17,7 +17,8 @@ from pydantic import (
 from odometer.models.enums import ExpenseCategory
 
 Integer = Annotated[int, Field(strict=True, ge=0, le=9007199254740991)]
-PositiveInteger = Annotated[int, Field(strict=True, gt=0, le=9007199254740991)]
+# Money can originate in exact CLI/import records beyond JavaScript Number precision.
+MoneyInteger = Annotated[int, Field(strict=True, gt=0, le=9223372036854775807)]
 PositiveNumber = Annotated[float, Field(strict=True, gt=0, allow_inf_nan=False)]
 Year = Annotated[int, Field(strict=True, ge=1, le=9998)]
 
@@ -77,7 +78,7 @@ class FuelCreate(Body):
     date: date
     odometer_miles: Integer
     litres: PositiveNumber
-    total_cost_pence: PositiveInteger
+    total_cost_pence: MoneyInteger
     station: StrictStr | None = None
     notes: StrictStr | None = None
     is_full_tank: StrictBool = True
@@ -88,7 +89,7 @@ class FuelCreate(Body):
 class ExpenseCreate(Body):
     date: date
     category: ExpenseCategory
-    amount_pence: PositiveInteger
+    amount_pence: MoneyInteger
     odometer_miles: Integer | None = None
     description: StrictStr | None = None
     vendor: StrictStr | None = None

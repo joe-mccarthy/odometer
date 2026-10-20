@@ -506,3 +506,70 @@ def test_monthly_charts_use_complete_history(client):
     assert summary["monthly"][0]["miles_driven"] is None
     assert summary["monthly"][1]["total_spend_pence"] == 0
     assert summary["monthly"][1]["miles_driven"] is None
+
+
+@pytest.mark.parametrize("amount", [9007199254740990, 9007199254740993, 9223372036854775807])
+def test_exact_edit_transport_and_null_price(client, amount):
+    from odometer.db.session import get_session
+    from odometer.models.fuel import FuelLog
+
+    v = vehicle(client)
+    f = fuel(client, v["id"], 100, total_cost_pence=amount).json()
+    with get_session() as db:
+        row = db.get(FuelLog, f["id"])
+        row.price_per_litre_pence = None
+        db.add(row)
+        db.commit()
+    payload = {
+        "date": f["date"],
+        "odometer_miles": 100,
+        "litres": 30,
+        "total_cost_pence": amount,
+        "notes": "only",
+    }
+    updated = client.put(f"/api/fuel/{f['id']}", json=payload)
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["total_cost_pence"] == amount
+    assert updated.json()["total_cost_pence_exact"] == str(amount)
+    assert updated.json()["price_per_litre_pence"] is None
+    payload["price_per_litre_pence"] = None
+    assert (
+        client.put(f"/api/fuel/{f['id']}", json=payload).json()["price_per_litre_pence"]
+        == amount / 30.0
+    )
+    e = client.post(
+        f"/api/vehicles/{v['id']}/expenses",
+        json={
+            "date": "2026-01-01",
+            "category": "SERVICE",
+            "amount_pence": amount,
+        },
+    ).json()
+    assert e["amount_pence_exact"] == str(amount)
+    updated = client.put(
+        f"/api/expenses/{e['id']}",
+        json={
+            "date": e["date"],
+            "category": "SERVICE",
+            "amount_pence": amount,
+            "notes": "only",
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["amount_pence"] == amount
+    assert updated.json()["amount_pence_exact"] == str(amount)
+
+
+@pytest.mark.parametrize("amount", [9223372036854775808, 1.5, True, "123"])
+def test_money_transport_rejects_non_int64(client, amount):
+    v = vehicle(client)
+    assert fuel(client, v["id"], 100, total_cost_pence=amount).status_code == 422
+    response = client.post(
+        f"/api/vehicles/{v['id']}/expenses",
+        json={
+            "date": "2026-01-01",
+            "category": "SERVICE",
+            "amount_pence": amount,
+        },
+    )
+    assert response.status_code == 422

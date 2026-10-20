@@ -19,7 +19,7 @@ from odometer.tui.screens.context import (
 )
 from odometer.tui.screens.tables import replace_table_data
 from odometer.utils.formatting import format_optional_int
-from odometer.utils.money import MoneyParseError, format_money
+from odometer.utils.money import MoneyParseError, format_money, pence_to_pounds_decimal
 
 
 def expense_category_label(category: ExpenseCategory) -> str:
@@ -194,7 +194,7 @@ class AddExpenseModal(ModalScreen[bool]):
             "vehicle": row.vehicle_id,
             "date": row.date.isoformat(),
             "mileage": "" if row.odometer_miles is None else str(row.odometer_miles),
-            "amount": f"{row.amount_pence / 100:.2f}",
+            "amount": str(pence_to_pounds_decimal(row.amount_pence)),
             "description": row.description or "",
             "vendor": row.vendor or "",
             "notes": row.notes or "",

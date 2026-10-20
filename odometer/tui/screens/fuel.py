@@ -17,7 +17,7 @@ from odometer.tui.screens.context import (
     vehicle_context_select,
 )
 from odometer.tui.screens.tables import replace_table_data
-from odometer.utils.money import MoneyParseError, format_money
+from odometer.utils.money import MoneyParseError, format_money, pence_to_pounds_decimal
 
 
 class FuelScreen(Screen[None]):
@@ -182,7 +182,7 @@ class AddFuelModal(ModalScreen[bool]):
             "date": row.date.isoformat(),
             "mileage": "" if row.odometer_miles is None else str(row.odometer_miles),
             "litres": str(row.litres),
-            "amount": f"{row.total_cost_pence / 100:.2f}",
+            "amount": str(pence_to_pounds_decimal(row.total_cost_pence)),
             "station": row.station or "",
             "fill": "full" if row.is_full_tank else "partial",
             "notes": row.notes or "",

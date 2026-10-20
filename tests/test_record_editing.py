@@ -345,3 +345,66 @@ def test_tui_edit_disappeared_record_refreshes(session, kind):
             assert "no longer available" in str(screen.query_one("#message", Static).render())
 
     asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("amount", [9007199254740990, 9007199254740993, 9223372036854775807])
+def test_tui_large_money_notes_only_roundtrip(session, amount):
+    import asyncio
+
+    from textual.widgets import Input
+
+    from odometer.tui.app import OdometerTUI
+    from odometer.tui.screens.expenses import AddExpenseModal
+    from odometer.tui.screens.fuel import AddFuelModal
+
+    vehicle, service, rows = history(session)
+    row = service.update_fuel_log(rows[1].id, total_cost_pence=amount)
+    row.price_per_litre_pence = None
+    session.add(row)
+    session.commit()
+    expense = ExpenseService(session).add_expense(
+        vehicle_identifier=vehicle.id,
+        category="SERVICE",
+        amount_pence=amount,
+        date_=date(2026, 1, 1),
+    )
+
+    async def exercise():
+        app = OdometerTUI()
+        async with app.run_test(size=(100, 45)) as pilot:
+            for modal in (AddFuelModal(row), AddExpenseModal(expense)):
+                app.push_screen(modal)
+                await pilot.pause()
+                assert app.screen.query_one("#amount", Input).value == (
+                    f"{amount // 100}.{amount % 100:02d}"
+                )
+                app.screen.query_one("#notes", Input).value = "notes only"
+                await pilot.click("#save")
+                await pilot.pause()
+                assert app.screen is not modal
+
+    asyncio.run(exercise())
+    session.expire_all()
+    assert service.repository.get_by_id(row.id).total_cost_pence == amount
+    assert service.repository.get_by_id(row.id).price_per_litre_pence is None
+    session.refresh(expense)
+    assert expense.amount_pence == amount and expense.notes == "notes only"
+
+
+def test_imported_null_price_omitted_explicit_and_changed_inputs(session):
+    _, service, rows = history(session)
+    row = rows[1]
+    row.price_per_litre_pence = None
+    session.add(row)
+    session.commit()
+    assert service.update_fuel_log(row.id, notes="only").price_per_litre_pence is None
+    assert service.update_fuel_log(row.id, total_cost_pence=3000).price_per_litre_pence is None
+    assert service.update_fuel_log(row.id, price_per_litre_pence=None).price_per_litre_pence == 150
+    assert service.update_fuel_log(row.id, total_cost_pence=2000).price_per_litre_pence == 100
+    assert service.update_fuel_log(row.id, litres=10).price_per_litre_pence == 200
+    assert (
+        service.update_fuel_log(
+            row.id, litres=20, price_per_litre_pence=123.0
+        ).price_per_litre_pence
+        == 123
+    )

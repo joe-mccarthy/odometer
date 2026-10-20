@@ -116,7 +116,12 @@ class FuelService:
             [candidate if row.id == current.id else row for row in history],
             baseline=history,
         )
-        if candidate.price_per_litre_pence is None:
+        # Omission preserves imported nulls; explicit null requests derivation.
+        if candidate.price_per_litre_pence is None and (
+            "price_per_litre_pence" in changes
+            or candidate.litres != current.litres
+            or candidate.total_cost_pence != current.total_cost_pence
+        ):
             candidate.price_per_litre_pence = candidate.total_cost_pence / candidate.litres
             if not math.isfinite(candidate.price_per_litre_pence):
                 raise InvalidFuelLogError("Fuel price must be finite and greater than zero.")

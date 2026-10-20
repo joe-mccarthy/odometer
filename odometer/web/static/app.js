@@ -35,6 +35,10 @@ function pence(value) {
   if (!Number.isSafeInteger(result)) throw new Error("Amount is too large.");
   return result;
 }
+function editMoney(record, name) {
+  const value = BigInt(record[name + "_exact"] ?? record[name]);
+  return `${value / 100n}.${(value % 100n).toString().padStart(2, "0")}`;
+}
 function node(tag, text, parent) {
   const el = document.createElement(tag);
   if (text != null) el.textContent = text;
@@ -74,6 +78,14 @@ function showError(error, form) {
   }
   errorRegion().focus();
 }
+// All request bodies are flat objects. Encode bigint money as numeric JSON tokens,
+// while JSON.stringify still escapes every key and all ordinary field values.
+function requestJSON(body) {
+  return "{" + Object.entries(body).filter(([, value]) => value !== undefined)
+    .map(([key, value]) => JSON.stringify(key) + ":" +
+      (typeof value === "bigint" ? value.toString() : JSON.stringify(value)))
+    .join(",") + "}";
+}
 async function api(path, method = "GET", body) {
   const response = await fetch("/api" + path, {
     method,
@@ -82,7 +94,7 @@ async function api(path, method = "GET", body) {
       method === "GET"
         ? {}
         : { "Content-Type": "application/json", "X-Odometer-Request": "1" },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : requestJSON(body),
   });
   const data = await response.json();
   if (!response.ok) throw data.error || new Error("Request failed");
@@ -301,7 +313,7 @@ function editRecord(kind, record, vehicle, trigger) {
     if (type === "select") categories.forEach(c => { const o = node("option", c, input); o.value = c; });
     else input.type = type === "checkbox" ? "checkbox" : type === "date" ? "date" : "text";
     if (type === "checkbox") input.checked = record[name];
-    else input.value = record[name] == null ? "" : type === "money" ? (record[name] / 100).toFixed(2) : record[name];
+    else input.value = record[name] == null ? "" : type === "money" ? editMoney(record, name) : record[name];
   }
   const save = node("button", "Save changes", form);
   const cancel = node("button", "Cancel", form);
@@ -336,11 +348,18 @@ function editRecord(kind, record, vehicle, trigger) {
       const body = {};
       for (const [name,,type = "text"] of fields) {
         const input = form.elements[name];
-        body[name] = type === "checkbox" ? input.checked : input.value === "" ? null : type === "money" ? pence(input.value) : ["number", "integer"].includes(type) ? Number(input.value) : input.value;
+        if (type === "money") {
+          body[name] = input.value === editMoney(record, name)
+            ? BigInt(record[name + "_exact"] ?? record[name]) : pence(input.value);
+        } else {
+          body[name] = type === "checkbox" ? input.checked : input.value === "" ? null
+            : ["number", "integer"].includes(type) ? Number(input.value) : input.value;
+        }
       }
-      // A changed cost/quantity derives a fresh unit price unless explicitly corrected.
-      if (kind === "fuel" && (body.litres !== record.litres || body.total_cost_pence !== record.total_cost_pence)
-          && body.price_per_litre_pence === record.price_per_litre_pence) body.price_per_litre_pence = null;
+      // Omitting an untouched unit price lets the shared service preserve nulls
+      // or derive from changed cost/quantity. Explicit clearing requests derivation.
+      if (kind === "fuel" && body.price_per_litre_pence === record.price_per_litre_pence)
+        delete body.price_per_litre_pence;
       saving = true;
       save.disabled = true;
       cancel.disabled = true;
@@ -368,7 +387,7 @@ function editRecord(kind, record, vehicle, trigger) {
     try {
       resetHistory();
       await load(vehicle.id, true);
-      const replacement = [...document.querySelectorAll("[data-edit-id]")].find(b => b.dataset.editId === record.id);
+      const replacement = [...$(kind + "-list").querySelectorAll("[data-edit-id]")].find(b => b.dataset.editId === record.id);
       if (replacement) replacement.focus();
       else { $(kind + "-list").tabIndex = -1; $(kind + "-list").focus(); }
       $("status").textContent = `${kind === "fuel" ? "Fuel" : "Expense"} updated.${replacement ? "" : " Record is outside this view."}`;
