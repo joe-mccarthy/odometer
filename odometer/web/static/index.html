@@ -89,6 +89,22 @@
         </section>
       </div>
       <p id="record-hint">Select a vehicle to view and add fuel or expenses.</p>
+      <section aria-labelledby="data-tools-heading">
+        <h2 id="data-tools-heading">Data tools</h2>
+        <p>Downloads include all vehicles, including sold and archived vehicles, and contain private records. Vehicle and date filters do not limit these files.</p>
+        <p>Exports contain portable vehicle, fuel and expense records only. A SQLite backup is a database snapshot including reminders. Restore only while all Odometer processes are stopped.</p>
+        <button type="button" data-download="json">Download JSON export</button>
+        <label for="csv-record-type">CSV record type</label>
+        <select id="csv-record-type">
+          <option value="vehicles">Vehicles</option>
+          <option value="fuel">Fuel</option>
+          <option value="expenses">Expenses</option>
+        </select>
+        <button type="button" data-download="csv">Download CSV</button>
+        <button type="button" data-download="backup">Download SQLite backup</button>
+        <p id="download-status" role="status"></p>
+        <p id="download-error" role="alert"></p>
+      </section>
     </main>
     <footer>
       Stored in your local Odometer database. No cloud account or external

@@ -26,4 +26,9 @@ Manual smoke steps:
 6. Cancel then confirm record deletion. Cancel then confirm vehicle deletion; its warning names the registration and all fuel/expense records. Verify the selected context returns safely to fleet.
 7. Stop the server and refresh: the error state must be readable. Restart and use Refresh. Check browser network requests stay on the local origin. Confirm ordinary CLI/TUI reads see saved browser records using this same disposable database.
 
-Limits: lists show the newest 1,000 records; there is no general editing, reactivation, import, HTTP export or pagination UI in v1. Automated Chromium and axe checks supplement, and do not replace, independent acceptance or manual assistive-technology testing.
+Limits: lists show the newest 1,000 records; there is no general editing, reactivation, import, pagination UI in v1. Automated Chromium and axe checks supplement, and do not replace, independent acceptance or manual assistive-technology testing.
+
+Download regression: start the app with disposable data on port 8878 and run
+`NODE_PATH=/tmp/odometer-browser-tests/node_modules node tests/browser/downloads.cjs`.
+This checks file bytes and names, all five choices, keyboard focus, accessible
+failures, 320px reflow, scoped axe and local-only requests.

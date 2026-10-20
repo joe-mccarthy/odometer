@@ -484,3 +484,36 @@ $("tank-form").onsubmit = (e) => {
   });
 };
 load();
+
+// Downloads always cover the database, independently of dashboard context.
+document.querySelectorAll("[data-download]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    if (button.getAttribute("aria-disabled") === "true") return;
+    button.setAttribute("aria-disabled", "true");
+    $("download-error").textContent = "";
+    $("download-status").textContent = "Preparing download…";
+    let url;
+    try {
+      const kind = button.dataset.download === "csv"
+        ? $("csv-record-type").value : button.dataset.download;
+      const response = await fetch(`/api/downloads/${kind}`);
+      if (!response.ok) throw new Error("Could not prepare download. Try again.");
+      const blob = await response.blob();
+      url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = response.headers.get("Content-Disposition")
+        .match(/filename="([^"]+)"/)[1];
+      document.body.append(link);
+      link.click();
+      link.remove();
+      $("download-status").textContent = "Download prepared; check your browser downloads.";
+    } catch (error) {
+      $("download-status").textContent = "";
+      $("download-error").textContent = error.message;
+    } finally {
+      button.removeAttribute("aria-disabled");
+      if (url) setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  });
+});

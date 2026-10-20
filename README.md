@@ -394,3 +394,14 @@ The release includes:
 Odometer is open source and licensed under the GNU General Public License v3.0 only (GPL-3.0-only).
 
 See the [LICENSE](LICENSE) file for details.
+
+### Browser data downloads
+
+Data tools downloads full version-1 JSON, Vehicles/Fuel/Expenses CSV, or an
+integrity-checked SQLite online backup. Files include all vehicles (including
+sold and archived) regardless of dashboard filters, and contain private data.
+JSON/CSV contain only vehicles, fuel and expenses; SQLite backups retain all
+persisted tables, including reminders. Downloads stay local and accept no server
+filesystem paths. Restore a backup only while all Odometer processes are stopped.
+The server prepares each completed file in a private temporary directory and
+removes it before returning bytes; preparation requires memory for the file.
