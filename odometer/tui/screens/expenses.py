@@ -8,6 +8,7 @@ from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Select, Static
 
 from odometer.models.enums import ExpenseCategory
+from odometer.models.expense import Expense
 from odometer.services.exceptions import OdometerError
 from odometer.tui.app import OdometerTUI
 from odometer.tui.screens.confirm import ConfirmDeleteModal
@@ -41,6 +42,7 @@ class ExpensesScreen(Screen[None]):
     """Expense table screen."""
 
     BINDINGS = [
+        ("e", "edit_selected", "Edit"),
         ("a", "add_expense", "Add"),
         ("delete", "delete_selected", "Delete"),
         ("r", "refresh", "Refresh"),
@@ -122,6 +124,18 @@ class ExpensesScreen(Screen[None]):
         """Open add expense modal."""
         self.app.push_screen(AddExpenseModal(), callback=self._after_add)
 
+    def action_edit_selected(self) -> None:
+        """Open the existing record with its vehicle fixed."""
+        table = self.query_one("#expenses-table", DataTable)
+        if not self.expense_ids or table.cursor_row >= len(self.expense_ids):
+            return
+        app = cast(OdometerTUI, self.app)
+        rows = app.get_expenses()
+        record = next(
+            row.expense for row in rows if row.expense.id == self.expense_ids[table.cursor_row]
+        )
+        self.app.push_screen(AddExpenseModal(record), callback=self._after_add)
+
     def action_delete_selected(self) -> None:
         """Confirm deletion of the selected expense."""
         table = self.query_one("#expenses-table", DataTable)
@@ -156,13 +170,45 @@ class ExpensesScreen(Screen[None]):
 class AddExpenseModal(ModalScreen[bool]):
     """Simple add expense form."""
 
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    def __init__(self, record: Expense | None = None) -> None:
+        super().__init__()
+        self.record = record
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    def on_mount(self) -> None:
+        if self.record is None:
+            return
+        row = self.record
+        values = {
+            "vehicle": row.vehicle_id,
+            "date": row.date.isoformat(),
+            "mileage": "" if row.odometer_miles is None else str(row.odometer_miles),
+            "amount": f"{row.amount_pence / 100:.2f}",
+            "description": row.description or "",
+            "vendor": row.vendor or "",
+            "notes": row.notes or "",
+        }
+        for key, value in values.items():
+            self.query_one("#" + key, Input).value = value
+        self.query_one("#vehicle", Input).disabled = True
+        self.query_one("#category", Select).value = row.category.value
+
     def compose(self) -> ComposeResult:
         """Build input widgets for creating an expense."""
         with Container(id="content"):
-            yield Static("[b]Add expense[/b]")
+            yield Static("[b]Edit expense[/b]" if self.record else "[b]Add expense[/b]")
             yield Input(placeholder="Vehicle registration or id", id="vehicle")
             yield Select(
-                expense_category_options(),
+                expense_category_options()
+                + (
+                    [("Fuel", "FUEL")]
+                    if self.record and self.record.category is ExpenseCategory.FUEL
+                    else []
+                ),
                 prompt="Category",
                 allow_blank=False,
                 value=ExpenseCategory.SERVICE.value,
@@ -172,6 +218,8 @@ class AddExpenseModal(ModalScreen[bool]):
             yield Input(placeholder="Date yyyy-mm-dd", id="date")
             yield Input(placeholder="Mileage", id="mileage")
             yield Input(placeholder="Description", id="description")
+            yield Input(placeholder="Notes", id="notes")
+            yield Input(placeholder="Vendor", id="vendor")
             yield Static("", id="message")
             yield Button("Save", id="save", variant="primary")
             yield Button("Cancel", id="cancel")
@@ -183,8 +231,11 @@ class AddExpenseModal(ModalScreen[bool]):
             return
         try:
             app = cast(OdometerTUI, self.app)
-            app.add_expense_from_form(
+            app.save_expense_from_form(
                 {
+                    "record_id": self.record.id if self.record else "",
+                    "notes": self.query_one("#notes", Input).value,
+                    "vendor": self.query_one("#vendor", Input).value,
                     "vehicle": self.query_one("#vehicle", Input).value,
                     "category": str(self.query_one("#category", Select).value),
                     "amount": self.query_one("#amount", Input).value,

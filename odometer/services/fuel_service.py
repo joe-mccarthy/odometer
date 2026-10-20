@@ -1,10 +1,12 @@
 """Fuel log service."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 
+from pydantic import ValidationError
 from sqlmodel import Session
 
 from odometer.models.fuel import FuelLog
+from odometer.models.vehicle import Vehicle
 from odometer.repositories.fuel_repository import FuelRepository
 from odometer.services.exceptions import FuelLogNotFoundError, InvalidFuelLogError
 from odometer.services.vehicle_service import VehicleService
@@ -75,6 +77,58 @@ class FuelService:
             notes=notes,
         )
         return self.repository.add(fuel_log)
+
+    def update_fuel_log(self, fuel_log_id: str, **changes: object) -> FuelLog:
+        """Validate a detached candidate before updating the existing record atomically."""
+        current = self.repository.get_by_id(fuel_log_id)
+        if current is None:
+            raise FuelLogNotFoundError(f"Fuel log not found: {fuel_log_id}.")
+        allowed = {
+            "date_",
+            "odometer_miles",
+            "litres",
+            "total_cost_pence",
+            "station",
+            "notes",
+            "is_full_tank",
+            "price_per_litre_pence",
+        }
+        if not changes or changes.keys() - allowed:
+            raise InvalidFuelLogError("Supply editable fuel fields only.")
+        values = current.model_dump()
+        values.update({"date" if k == "date_" else k: v for k, v in changes.items()})
+        if "price_per_litre_pence" not in changes and (
+            values["litres"] != current.litres
+            or values["total_cost_pence"] != current.total_cost_pence
+        ):
+            values["price_per_litre_pence"] = None
+        try:
+            candidate = FuelLog.model_validate(values, strict=True)
+        except ValidationError as exc:
+            raise InvalidFuelLogError(str(exc)) from exc
+        vehicle = self.vehicle_service.get_vehicle(current.vehicle_id)
+        history = self.repository.list(vehicle_id=current.vehicle_id, limit=None)
+        self.validate_candidate_history(
+            vehicle, [candidate if row.id == current.id else row for row in history]
+        )
+        if candidate.price_per_litre_pence is None:
+            candidate.price_per_litre_pence = candidate.total_cost_pence / candidate.litres
+        for key in allowed - {"date_"}:
+            setattr(current, key, getattr(candidate, key))
+        current.date = candidate.date
+        current.updated_at = datetime.now(UTC)
+        return self.repository.add(current)
+
+    @staticmethod
+    def validate_candidate_history(vehicle: Vehicle, history: list[FuelLog]) -> None:
+        """Validate a complete vehicle history without writes (also usable by atomic imports).
+
+        Fills are ordered by date then ID; mileage must never decrease.
+        Callers supply all existing plus proposed records.
+        """
+        from odometer.services.history_validation import validate_fuel_history
+
+        validate_fuel_history(vehicle, history)
 
     def list_fuel_logs(
         self,

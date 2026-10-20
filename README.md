@@ -218,8 +218,8 @@ sold/archive status and confirmed deletion. Money entry is GBP; storage remains
 integer pence. MPG uses full-to-full imperial gallons including intervening partial
 fills. Export and online backup are available through the CLI commands below.
 
-Current limits: record lists show at most the newest 1,000 rows; no general record
-editing, reactivation, import or browser export/backup controls are provided.
+Current limits: record lists show at most the newest 1,000 rows; no
+reactivation, import or browser export/backup controls are provided.
 Chromium has been tested; Firefox/WebKit, native devices, screen readers and large
 datasets remain unverified. See [browser smoke steps](tests/browser/smoke.md).
 Before a manual file-copy backup or restore, stop the web server as well as CLI/TUI
@@ -394,3 +394,12 @@ The release includes:
 Odometer is open source and licensed under the GNU General Public License v3.0 only (GPL-3.0-only).
 
 See the [LICENSE](LICENSE) file for details.
+
+
+Correct records with `odometer fuel edit RECORD_ID --amount 45.01 --partial`
+or `odometer expense edit RECORD_ID --amount 12.34 --clear-mileage`.
+Only supplied CLI fields change; pass an empty string to clear optional text.
+The browser offers Edit beside each record, and the TUI uses `e` on a selected row.
+Corrections preserve IDs and vehicle relationships and validate neighboring fuel readings.
+HTTP clients can replace editable fields with `PUT /api/fuel/{id}` and
+`PUT /api/expenses/{id}` using the same local Origin and request headers as creation.

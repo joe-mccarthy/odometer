@@ -1,0 +1,51 @@
+/* Disposable server on :8899; NODE_PATH points to an external Playwright install. */
+const {chromium} = require('playwright');
+const assert = require('node:assert/strict');
+(async () => {
+ const browser = await chromium.launch({headless:true});
+ const page = await browser.newPage({viewport:{width:320,height:800}});
+ const origin='http://127.0.0.1:8899';
+ const external=[], errors=[];
+ page.on('request',r=>{if(new URL(r.url()).origin!==origin)external.push(r.url());});
+ page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(origin);
+ async function api(path,body){return page.evaluate(async ({path,body})=>{
+ const r=await fetch('/api'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Odometer-Request':'1'},body:JSON.stringify(body)});
+ if(!r.ok)throw new Error(await r.text());return r.json();},{path,body});}
+ const v=await api('/vehicles',{registration:'EDIT '+Date.now(),initial_mileage:100,fuel_tank_litres:60});
+ const fuel=[];
+ for(const [day,miles] of [[1,100],[2,200],[3,300]])fuel.push(await api(`/vehicles/${v.id}/fuel`,{date:`2026-01-0${day}`,odometer_miles:miles,litres:20,total_cost_pence:3000,is_full_tank:day!==2}));
+ const expense=await api(`/vehicles/${v.id}/expenses`,{date:'2026-01-02',category:'SERVICE',amount_pence:1234,notes:'keep'});
+ await page.reload();await page.locator('#status').filter({hasText:'Up to date'}).waitFor();
+ await page.locator('#vehicle').selectOption(v.id);
+ const button=()=>page.locator(`[data-edit-id="${fuel[1].id}"]`);
+ await button().click();
+ assert.equal(await page.locator('#edit-total_cost_pence').inputValue(),'30.00');
+ assert.equal(await page.locator('#edit-is_full_tank').isChecked(),false);
+ await page.locator('#edit-odometer_miles').fill('999');
+ await page.getByRole('button',{name:'Save changes',exact:true}).click();
+ await page.getByRole('dialog').getByRole('alert').filter({hasText:/cannot be lower/}).waitFor();
+ assert.equal(await page.locator('#edit-odometer_miles').inputValue(),'999');
+ assert.equal(await page.locator(':focus').getAttribute('role'),'alert');
+ await page.locator('#edit-odometer_miles').fill('210');
+ await page.locator('#edit-total_cost_pence').fill('10.01');
+ await page.locator('#edit-is_full_tank').check();
+ await page.getByRole('button',{name:'Save changes',exact:true}).click();
+ await page.locator('#status').filter({hasText:'Fuel updated'}).waitFor();
+ assert.equal(await page.locator(':focus').getAttribute('data-edit-id'),fuel[1].id);
+ assert.match(await page.locator('#metrics').textContent(),/£82.35/);
+ await page.locator(`[data-edit-id="${expense.id}"]`).click();
+ await page.locator('#edit-amount_pence').fill('99.99');
+ await page.keyboard.press('Escape');
+ await page.getByRole('button',{name:'Discard changes',exact:true}).click();
+ await page.getByRole('dialog').waitFor({state:'detached'});
+ assert.equal(await page.locator(':focus').getAttribute('data-edit-id'),expense.id);
+ const stored=await page.evaluate(async id=>(await fetch(`/api/vehicles/${id}/expenses`)).json(),v.id);
+ assert.equal(stored[0].amount_pence,1234);
+ await button().click();
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ await page.keyboard.press('Escape');
+ assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
+ console.log('PASS: prefill, invalid draft/error focus, save, totals, focus restoration, dirty Escape cancellation, 320px, local-only requests');
+ await browser.close();
+})().catch(e=>{console.error(e);process.exit(1)});

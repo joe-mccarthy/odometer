@@ -247,6 +247,110 @@ function table(parent, title, headers, rows) {
     });
   });
 }
+function recordActions(kind, record, vehicle, path, description) {
+  const group = node("div");
+  const edit = node("button", "Edit", group);
+  edit.dataset.editId = record.id;
+  edit.setAttribute("aria-label", `Edit ${description}`);
+  edit.onclick = () => editRecord(kind, record, vehicle, edit);
+  group.append(deleteButton(path, description));
+  return group;
+}
+function editRecord(kind, record, vehicle, trigger) {
+  const dialog = node("dialog", null, document.body);
+  dialog.setAttribute("aria-labelledby", "edit-title");
+  node("h2", `Edit ${vehicle.registration} ${kind}`, dialog).id = "edit-title";
+  const errors = node("div", null, dialog);
+  errors.setAttribute("role", "alert");
+  errors.tabIndex = -1;
+  const form = node("form", null, dialog);
+  form.id = "edit-record";
+  const fields = specs[kind + "-form"].filter(([name]) => name !== "fuel_tank_litres");
+  if (kind === "fuel") fields.push(["price_per_litre_pence", "Price per litre (pence, optional)", "number"]);
+  for (const [name, title, type = "text", required = false] of fields) {
+    const label = node("label", title, form);
+    const input = node(type === "select" ? "select" : "input", null, label);
+    input.name = name;
+    input.required = required;
+    input.id = "edit-" + name;
+    if (type === "select") categories.forEach(c => { const o = node("option", c, input); o.value = c; });
+    else input.type = type === "checkbox" ? "checkbox" : type === "date" ? "date" : "text";
+    if (type === "checkbox") input.checked = record[name];
+    else input.value = record[name] == null ? "" : type === "money" ? (record[name] / 100).toFixed(2) : record[name];
+  }
+  const save = node("button", "Save changes", form);
+  const cancel = node("button", "Cancel", form);
+  cancel.type = "button";
+  const draft = () => JSON.stringify(fields.map(([n,,t]) => t === "checkbox" ? form.elements[n].checked : form.elements[n].value));
+  const initial = draft();
+  let saving = false;
+  function close() {
+    if (saving) return;
+    if (draft() !== initial) {
+      errors.replaceChildren();
+      node("p", "Discard changes?", errors);
+      const keep = node("button", "Keep editing", errors);
+      keep.type = "button";
+      const discard = node("button", "Discard changes", errors);
+      discard.type = "button";
+      keep.onclick = () => { errors.replaceChildren(); form.querySelector("input,select").focus(); };
+      discard.onclick = () => dialog.close();
+      keep.focus();
+      return;
+    }
+    dialog.close();
+  }
+  cancel.onclick = close;
+  dialog.addEventListener("cancel", event => { event.preventDefault(); close(); });
+  dialog.addEventListener("close", () => { dialog.remove(); if (trigger.isConnected) trigger.focus(); });
+  form.onsubmit = async event => {
+    event.preventDefault();
+    if (saving) return;
+    errors.replaceChildren();
+    try {
+      const body = {};
+      for (const [name,,type = "text"] of fields) {
+        const input = form.elements[name];
+        body[name] = type === "checkbox" ? input.checked : input.value === "" ? null : type === "money" ? pence(input.value) : ["number", "integer"].includes(type) ? Number(input.value) : input.value;
+      }
+      // A changed cost/quantity derives a fresh unit price unless explicitly corrected.
+      if (kind === "fuel" && (body.litres !== record.litres || body.total_cost_pence !== record.total_cost_pence)
+          && body.price_per_litre_pence === record.price_per_litre_pence) body.price_per_litre_pence = null;
+      saving = true;
+      save.disabled = true;
+      cancel.disabled = true;
+      errors.textContent = "Saving…";
+      await api(`/${kind === "fuel" ? "fuel" : "expenses"}/${encodeURIComponent(record.id)}`, "PUT", body);
+    } catch (error) {
+      errors.textContent = error.message || "Save could not be confirmed. Refresh before trying again.";
+      for (const [path, message] of Object.entries(error.fields || {})) {
+        const name = path.replace(/^body\./, "");
+        const input = form.elements.namedItem(name);
+        if (input) {
+          input.setAttribute("aria-invalid", "true");
+          const link = node("a", `${name}: ${message}`, node("p", null, errors));
+          link.href = "#" + input.id;
+          link.onclick = e => { e.preventDefault(); input.focus(); };
+        }
+      }
+      errors.focus();
+      saving = false;
+      save.disabled = false;
+      cancel.disabled = false;
+      return;
+    }
+    dialog.close();
+    try {
+      await load(vehicle.id, true);
+      const replacement = [...document.querySelectorAll("[data-edit-id]")].find(b => b.dataset.editId === record.id);
+      if (replacement) replacement.focus();
+      else { $(kind + "-list").tabIndex = -1; $(kind + "-list").focus(); }
+      $("status").textContent = `${kind === "fuel" ? "Fuel" : "Expense"} updated.${replacement ? "" : " Record is outside this view."}`;
+    } catch (_) { $("status").textContent = "Saved. Could not refresh totals; refresh to see current values."; }
+  };
+  dialog.showModal();
+  form.querySelector("input,select").focus();
+}
 function deleteButton(path, description) {
   const b = node("button", "Delete");
   b.className = "danger";
@@ -334,7 +438,7 @@ function renderSummary(s) {
     ],
   );
 }
-async function load(preferred = $("vehicle").value) {
+async function load(preferred = $("vehicle").value, propagate = false) {
   const token = ++generation;
   clearError();
   $("status").textContent = "Loading…";
@@ -414,7 +518,7 @@ async function load(preferred = $("vehicle").value) {
           number(r.litres),
           money(r.total_cost_pence),
           r.is_full_tank ? "Full" : "Partial",
-          deleteButton(
+          recordActions("fuel", r, v,
             `/fuel/${encodeURIComponent(r.id)}`,
             `${v.registration} fuel on ${r.date}, ${money(r.total_cost_pence)}`,
           ),
@@ -429,7 +533,7 @@ async function load(preferred = $("vehicle").value) {
           r.category,
           r.description || "—",
           money(r.amount_pence),
-          deleteButton(
+          recordActions("expense", r, v,
             `/expenses/${encodeURIComponent(r.id)}`,
             `${v.registration} ${r.category} on ${r.date}, ${money(r.amount_pence)}`,
           ),
@@ -442,7 +546,7 @@ async function load(preferred = $("vehicle").value) {
       showError(e);
       $("status").textContent =
         "Could not load current data. Use Refresh to try again.";
-      if (busy) throw e;
+      if (busy || propagate) throw e;
     }
   }
 }

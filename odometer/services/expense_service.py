@@ -1,7 +1,8 @@
 """Expense service."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 
+from pydantic import ValidationError
 from sqlmodel import Session
 
 from odometer.models.enums import ExpenseCategory
@@ -51,6 +52,43 @@ class ExpenseService:
             notes=notes,
         )
         return self.repository.add(expense)
+
+    def update_expense(self, expense_id: str, **changes: object) -> Expense:
+        """Validate a detached correction and preserve identity and vehicle."""
+        current = self.repository.get_by_id(expense_id)
+        if current is None:
+            raise ExpenseNotFoundError(f"Expense not found: {expense_id}.")
+        allowed = {
+            "date_",
+            "category",
+            "amount_pence",
+            "odometer_miles",
+            "description",
+            "vendor",
+            "notes",
+        }
+        if not changes or changes.keys() - allowed:
+            raise InvalidExpenseError("Supply editable expense fields only.")
+        values = current.model_dump()
+        values.update({"date" if k == "date_" else k: v for k, v in changes.items()})
+        values["category"] = self._parse_category(values["category"])
+        try:
+            candidate = Expense.model_validate(values, strict=True)
+        except ValidationError as exc:
+            raise InvalidExpenseError(str(exc)) from exc
+        vehicle = self.vehicle_service.get_vehicle(current.vehicle_id)
+        if type(candidate.amount_pence) is not int or candidate.amount_pence <= 0:
+            raise InvalidExpenseError("Expense amount must be positive integer pence.")
+        if candidate.odometer_miles is not None and (
+            type(candidate.odometer_miles) is not int
+            or candidate.odometer_miles < vehicle.initial_mileage
+        ):
+            raise InvalidExpenseError("Expense mileage cannot be lower than initial mileage.")
+        for key in allowed - {"date_"}:
+            setattr(current, key, getattr(candidate, key))
+        current.date = candidate.date
+        current.updated_at = datetime.now(UTC)
+        return self.repository.add(current)
 
     def list_expenses(
         self,

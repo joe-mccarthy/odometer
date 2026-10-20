@@ -211,3 +211,6 @@ dialog::backdrop {
 #expense-list table {
   min-width: 38rem;
 }
+
+#edit-record { display: grid; gap: 1rem; }
+dialog { max-height: 90dvh; overflow-y: auto; max-width: min(36rem, 90vw); }

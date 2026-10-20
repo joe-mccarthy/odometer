@@ -7,6 +7,7 @@ from textual.containers import Container
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Select, Static
 
+from odometer.models.fuel import FuelLog
 from odometer.services.exceptions import OdometerError
 from odometer.tui.app import OdometerTUI
 from odometer.tui.screens.confirm import ConfirmDeleteModal
@@ -23,6 +24,7 @@ class FuelScreen(Screen[None]):
     """Fuel log table screen."""
 
     BINDINGS = [
+        ("e", "edit_selected", "Edit"),
         ("a", "add_fuel", "Add"),
         ("delete", "delete_selected", "Delete"),
         ("r", "refresh", "Refresh"),
@@ -105,6 +107,18 @@ class FuelScreen(Screen[None]):
         """Open add fuel modal."""
         self.app.push_screen(AddFuelModal(), callback=self._after_add)
 
+    def action_edit_selected(self) -> None:
+        """Open the existing record with its vehicle fixed."""
+        table = self.query_one("#fuel-table", DataTable)
+        if not self.fuel_log_ids or table.cursor_row >= len(self.fuel_log_ids):
+            return
+        app = cast(OdometerTUI, self.app)
+        rows = app.get_fuel_logs()
+        record = next(
+            row.fuel_log for row in rows if row.fuel_log.id == self.fuel_log_ids[table.cursor_row]
+        )
+        self.app.push_screen(AddFuelModal(record), callback=self._after_add)
+
     def action_delete_selected(self) -> None:
         """Confirm deletion of the selected fuel log."""
         table = self.query_one("#fuel-table", DataTable)
@@ -139,10 +153,37 @@ class FuelScreen(Screen[None]):
 class AddFuelModal(ModalScreen[bool]):
     """Simple add fuel form."""
 
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    def __init__(self, record: FuelLog | None = None) -> None:
+        super().__init__()
+        self.record = record
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    def on_mount(self) -> None:
+        if self.record is None:
+            return
+        row = self.record
+        values = {
+            "vehicle": row.vehicle_id,
+            "date": row.date.isoformat(),
+            "mileage": "" if row.odometer_miles is None else str(row.odometer_miles),
+            "litres": str(row.litres),
+            "amount": f"{row.total_cost_pence / 100:.2f}",
+            "station": row.station or "",
+            "fill": "full" if row.is_full_tank else "partial",
+            "notes": row.notes or "",
+        }
+        for key, value in values.items():
+            self.query_one("#" + key, Input).value = value
+        self.query_one("#vehicle", Input).disabled = True
+
     def compose(self) -> ComposeResult:
         """Build input widgets for creating a fuel log."""
         with Container(id="content"):
-            yield Static("[b]Add fuel[/b]")
+            yield Static("[b]Edit fuel[/b]" if self.record else "[b]Add fuel[/b]")
             yield Input(placeholder="Vehicle registration or id", id="vehicle")
             yield Input(placeholder="Litres", id="litres")
             yield Input(placeholder="Amount", id="amount")
@@ -150,6 +191,7 @@ class AddFuelModal(ModalScreen[bool]):
             yield Input(placeholder="Date yyyy-mm-dd", id="date")
             yield Input(placeholder="Station", id="station")
             yield Input(placeholder="Fill: full or partial", id="fill")
+            yield Input(placeholder="Notes", id="notes")
             yield Static("", id="message")
             yield Button("Save", id="save", variant="primary")
             yield Button("Cancel", id="cancel")
@@ -161,8 +203,10 @@ class AddFuelModal(ModalScreen[bool]):
             return
         try:
             app = cast(OdometerTUI, self.app)
-            app.add_fuel_from_form(
+            app.save_fuel_from_form(
                 {
+                    "record_id": self.record.id if self.record else "",
+                    "notes": self.query_one("#notes", Input).value,
                     "vehicle": self.query_one("#vehicle", Input).value,
                     "litres": self.query_one("#litres", Input).value,
                     "amount": self.query_one("#amount", Input).value,

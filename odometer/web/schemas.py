@@ -90,3 +90,13 @@ class ExpenseCreate(Body):
     description: StrictStr | None = None
     vendor: StrictStr | None = None
     notes: StrictStr | None = None
+
+
+class FuelUpdate(FuelCreate):
+    """Complete editable record; vehicle tank capacity is a separate operation."""
+
+    @model_validator(mode="after")
+    def no_capacity_change(self) -> Self:
+        if "fuel_tank_litres" in self.model_fields_set:
+            raise ValueError("Change tank capacity using the vehicle controls")
+        return self
