@@ -211,3 +211,14 @@ dialog::backdrop {
 #expense-list table {
   min-width: 38rem;
 }
+
+#vehicle-dialog {
+  width: min(48rem, 90vw);
+  max-height: 90dvh;
+  overflow-y: auto;
+}
+#vehicle-errors:not(:empty) {
+  padding: 1rem;
+  background: #fff0ed;
+  border: 2px solid #9b302e;
+}

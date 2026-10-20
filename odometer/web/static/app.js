@@ -43,8 +43,13 @@ function node(tag, text, parent) {
 }
 let vehicles = [],
   generation = 0,
-  busy = false;
+  busy = false,
+  initialContext = true,
+  creationFocus = false,
+  writeConfirmed = false;
+const errorRegion = () => $("vehicle-dialog").open ? $("vehicle-errors") : $("error");
 function clearError() {
+  $("vehicle-errors").replaceChildren();
   $("error").hidden = true;
   document.querySelectorAll(".field-error").forEach((e) => e.remove());
   document.querySelectorAll("[aria-invalid]").forEach((e) => {
@@ -53,9 +58,9 @@ function clearError() {
   });
 }
 function showError(error, form) {
-  $("error").textContent =
+  errorRegion().textContent =
     error.message || "Request failed. Check the local server and refresh.";
-  $("error").hidden = false;
+  errorRegion().hidden = false;
   for (const [path, message] of Object.entries(error.fields || {})) {
     const name = path.replace(/^body\./, "");
     const input = form?.elements.namedItem(name);
@@ -65,9 +70,9 @@ function showError(error, form) {
       hint.className = "field-error";
       hint.id = `${form.id}-${name}-error`;
       input.setAttribute("aria-describedby", hint.id);
-    } else $("error").textContent += `\n${name}: ${message}`;
+    } else errorRegion().textContent += `\n${name}: ${message}`;
   }
-  $("error").focus();
+  errorRegion().focus();
 }
 async function api(path, method = "GET", body) {
   const response = await fetch("/api" + path, {
@@ -81,6 +86,7 @@ async function api(path, method = "GET", body) {
   });
   const data = await response.json();
   if (!response.ok) throw data.error || new Error("Request failed");
+  if (method !== "GET") writeConfirmed = true;
   return data;
 }
 const specs = {
@@ -123,6 +129,7 @@ for (const [id, fields] of Object.entries(specs)) {
     input.name = name;
     input.id = `${id}-${name}`;
     input.required = required;
+    if (id === "vehicle-form") label.firstChild.textContent += required ? " (required)" : " (optional)";
     if (type === "select")
       categories.forEach((c) => {
         const o = node("option", c, input);
@@ -188,7 +195,11 @@ for (const [id, fields] of Object.entries(specs)) {
         body,
       );
       form.reset();
-      if (id === "vehicle-form") await load(result.id);
+      if (id === "vehicle-form") {
+        $("vehicle-dialog").close("saved");
+        creationFocus = true;
+        await load(result.id);
+      }
       else await load(selected);
     });
   });
@@ -196,9 +207,11 @@ for (const [id, fields] of Object.entries(specs)) {
 async function mutate(form, action) {
   if (busy) return;
   busy = true;
+  writeConfirmed = false;
   clearError();
   $("status").textContent = "Saving…";
   const focus = document.activeElement;
+  let failed = false;
   document
     .querySelectorAll("button,input,select")
     .forEach((e) => (e.disabled = true));
@@ -206,16 +219,24 @@ async function mutate(form, action) {
     await action();
     $("status").textContent = "Saved. Current data refreshed.";
   } catch (e) {
+    failed = true;
+    creationFocus = false;
     showError(e, form);
     $("status").textContent =
-      "Changes were not confirmed. Check the error before trying again.";
+      writeConfirmed
+        ? "Saved. Could not refresh totals; refresh to see current values."
+        : "Save could not be confirmed. Refresh before trying again.";
   } finally {
     busy = false;
     document
       .querySelectorAll("button,input,select")
       .forEach((e) => (e.disabled = false));
-    if ($("error").hidden) {
-      if (focus?.isConnected && !focus.closest("[hidden]")) focus.focus();
+    if (!failed) {
+      if (creationFocus) {
+        creationFocus = false;
+        $("context").focus();
+        $("status").textContent = "Saved. Vehicle added. Ready to record fuel or an expense.";
+      } else if (focus?.isConnected && !focus.closest("[hidden]")) focus.focus();
       else $("vehicle").focus();
     }
   }
@@ -344,9 +365,24 @@ async function load(preferred = $("vehicle").value) {
   $("vehicle-actions").hidden = true;
   try {
     const include = $("inactive").checked;
-    const list = await api(`/vehicles?include_inactive=${include}`);
+    // Read the complete garage to distinguish inactive history from no vehicles.
+    const all = await api("/vehicles?include_inactive=true");
+    const list = include ? all : all.filter((v) => v.status === "ACTIVE");
     if (token !== generation) return;
+    if (initialContext) {
+      const active = all.filter((v) => v.status === "ACTIVE");
+      if (active.length === 1) preferred = active[0].id;
+      initialContext = false;
+    }
+    const unavailable = preferred && !list.some((v) => v.id === preferred);
     vehicles = list;
+    $("creation").hidden = false;
+    $("creation-heading").textContent = all.length ? "Vehicles" : "Add your first vehicle";
+    $("add-vehicle").hidden = !all.length;
+    if (!$("vehicle-dialog").open) {
+      const target = all.length ? $("vehicle-dialog") : $("creation-inline");
+      target.append($("vehicle-help"), $("vehicle-form"));
+    }
     const select = $("vehicle");
     select.replaceChildren();
     const fleet = node(
@@ -384,7 +420,9 @@ async function load(preferred = $("vehicle").value) {
           .join(" · ")
       : vehicles.length
         ? "Select a vehicle for its records."
-        : "Your garage is empty. Add your first vehicle below.";
+        : all.length
+          ? "No active vehicles. Include sold and archived vehicles to view history, or add a vehicle."
+          : "Your garage is empty. Add your first vehicle below.";
     const query = new URLSearchParams({
       include_inactive: String(include),
       year: $("year").value,
@@ -436,7 +474,9 @@ async function load(preferred = $("vehicle").value) {
         ]),
       );
     }
-    $("status").textContent = "Up to date.";
+    $("status").textContent = unavailable
+      ? "Selected vehicle is no longer available in this scope. Showing fleet. Up to date."
+      : "Up to date.";
   } catch (e) {
     if (token === generation) {
       showError(e);
@@ -446,6 +486,17 @@ async function load(preferred = $("vehicle").value) {
     }
   }
 }
+$("vehicle-errors").setAttribute("role", "alert");
+$("vehicle-errors").tabIndex = -1;
+$("add-vehicle").onclick = () => {
+  clearError();
+  $("vehicle-dialog").showModal();
+  $("vehicle-form-registration").focus();
+};
+$("cancel-vehicle").onclick = () => $("vehicle-dialog").close("cancel");
+$("vehicle-dialog").addEventListener("close", () => {
+  if ($("vehicle-dialog").returnValue !== "saved") $("add-vehicle").focus();
+});
 $("vehicle").onchange = () => load();
 $("inactive").onchange = () => load();
 $("refresh").onclick = () => load();
