@@ -23,6 +23,7 @@ class VehicleDeletionResult:
     registration: str
     expense_count: int
     fuel_log_count: int
+    reminder_count: int = 0
 
 
 class VehicleService:
@@ -137,7 +138,9 @@ class VehicleService:
             vehicle_id,
             commit=False,
         )
-        self.session.exec(delete(Reminder).where(col(Reminder.vehicle_id) == vehicle_id))
+        reminders = self.session.exec(
+            delete(Reminder).where(col(Reminder.vehicle_id) == vehicle_id)
+        )
         self.repository.delete(vehicle, commit=False)
         self.session.commit()
         return VehicleDeletionResult(
@@ -145,4 +148,5 @@ class VehicleService:
             registration=registration,
             expense_count=expense_count,
             fuel_log_count=fuel_log_count,
+            reminder_count=getattr(reminders, "rowcount", 0),
         )

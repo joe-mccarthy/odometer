@@ -16,13 +16,22 @@ const categories = [
   "ACCESSORY",
   "OTHER",
 ];
-const money = (p) =>
-  p == null
-    ? "Unavailable"
-    : new Intl.NumberFormat("en-GB", {
-        style: "currency",
-        currency: "GBP",
-      }).format(p / 100);
+const money = (p) => {
+  if (p == null) return "Unavailable";
+  if (typeof p === "number" && !Number.isInteger(p))
+    return new Intl.NumberFormat("en-GB", {style: "currency", currency: "GBP"}).format(p / 100);
+  const value = BigInt(p);
+  const absolute = value < 0n ? -value : value;
+  return `${value < 0n ? "-" : ""}£${new Intl.NumberFormat("en-GB").format(absolute / 100n)}.${String(absolute % 100n).padStart(2, "0")}`;
+};
+function exactMoney(key, value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    for (const name of Object.keys(value)) {
+      if (name.endsWith("_pence_exact")) value[name.slice(0, -6)] = value[name];
+    }
+  }
+  return value;
+}
 const number = (n, unit = "") =>
   n == null
     ? "Unavailable"
@@ -96,7 +105,7 @@ async function api(path, method = "GET", body) {
         : { "Content-Type": "application/json", "X-Odometer-Request": "1" },
     body: body === undefined ? undefined : requestJSON(body),
   });
-  const data = await response.json();
+  const data = JSON.parse(await response.text(), exactMoney);
   if (!response.ok) throw data.error || new Error("Request failed");
   if (method !== "GET") writeConfirmed = true;
   return data;
@@ -230,8 +239,8 @@ async function mutate(form, action) {
     e.disabled = true;
   });
   try {
-    await action();
-    $("status").textContent = "Saved. Current data refreshed.";
+    const message = await action();
+    $("status").textContent = message || "Saved. Current data refreshed.";
   } catch (e) {
     failed = true;
     creationFocus = false;
@@ -414,10 +423,11 @@ async function confirmDelete(path, description) {
     () => {
       if (dialog.returnValue === "delete")
         mutate(null, async () => {
-          await api(path, "DELETE");
+          const result = await api(path, "DELETE");
           resetHistory();
           await load(path.startsWith("/vehicles/") ? "" : $("vehicle").value);
           $("vehicle").focus();
+          if (path.startsWith("/vehicles/")) return `Vehicle deleted with ${result.expense_count} expenses, ${result.fuel_log_count} fuel logs, and ${result.reminder_count} active/completed reminders.`;
         });
     },
     { once: true },
@@ -442,7 +452,7 @@ function monthlyChart(parent, rows, key, title, scope, format) {
   const scale = node("div", null, plot);
   scale.className = "chart-scale";
   node("span", format(0), scale);
-  node("span", format(max), scale);
+  node("span", format(available.reduce((largest, r) => (typeof r[key] === "string" ? BigInt(r[key]) > BigInt(largest) : Number(r[key]) > Number(largest)) ? r[key] : largest, 0)), scale);
   rows.forEach((r) => {
     const row = node("div", null, plot);
     row.className = "chart-row";
@@ -911,7 +921,7 @@ $("delete-vehicle").onclick = () => {
   if (v)
     confirmDelete(
       `/vehicles/${encodeURIComponent(v.id)}`,
-      `${v.registration} and ALL its fuel and expense records`,
+      `${v.registration} and ALL its fuel and expense records and active/completed reminders`,
     );
 };
 document.querySelectorAll("[data-status]").forEach(

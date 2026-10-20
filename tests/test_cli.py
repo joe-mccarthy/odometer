@@ -329,6 +329,7 @@ def test_cli_delete_commands_require_confirmation(
     )
     assert cancelled_vehicle.exit_code == 0
     assert "Delete cancelled." in cancelled_vehicle.output
+    assert "active/completed reminders" in cancelled_vehicle.output
 
     deleted_vehicle = runner.invoke(
         app,
@@ -337,6 +338,7 @@ def test_cli_delete_commands_require_confirmation(
     )
     assert deleted_vehicle.exit_code == 0
     assert "Deleted vehicle" in deleted_vehicle.output
+    assert "0 active/completed reminders" in " ".join(deleted_vehicle.output.split())
 
     with get_session() as session:
         assert VehicleService(session).list_vehicles(include_inactive=True) == []

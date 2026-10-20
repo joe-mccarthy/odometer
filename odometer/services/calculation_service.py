@@ -4,6 +4,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
+from fractions import Fraction
 
 from sqlmodel import Session
 
@@ -405,7 +406,7 @@ class CalculationService:
 
         ordered_totals = list(month_totals.values())
         return RollingAverages(
-            all_months_average_pence=round(sum(ordered_totals) / len(ordered_totals)),
+            all_months_average_pence=round(Fraction(sum(ordered_totals), len(ordered_totals))),
             last_3_months_average_pence=_trailing_average(ordered_totals, 3),
             last_6_months_average_pence=_trailing_average(ordered_totals, 6),
             last_12_months_average_pence=_trailing_average(ordered_totals, 12),
@@ -579,4 +580,4 @@ def _trailing_average(values: list[int], window: int) -> int:
     if not values:
         return 0
     selected = values[-window:]
-    return round(sum(selected) / len(selected))
+    return round(Fraction(sum(selected), len(selected)))

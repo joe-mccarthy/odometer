@@ -73,11 +73,24 @@ class ReminderService:
         row = self.get(reminder_id)
         if row.completed_at is not None:
             raise ValueError("Completed reminders are history; create a new reminder.")
-        row.title, row.category = title.strip(), parsed
-        row.due_date, row.due_mileage = due_date, due_mileage
-        row.updated_at = datetime.now(UTC)
-        self.session.add(row)
-        self.session.commit()
+        try:
+            changed = self.session.execute(
+                update(Reminder)
+                .where(col(Reminder.id) == row.id, col(Reminder.completed_at).is_(None))
+                .values(
+                    title=title.strip(),
+                    category=parsed,
+                    due_date=due_date,
+                    due_mileage=due_mileage,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            if getattr(changed, "rowcount", 0) != 1:
+                raise ValueError("Completed reminders are history; create a new reminder.")
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+            raise
         self.session.refresh(row)
         return row
 
@@ -202,6 +215,7 @@ class ReminderService:
             elif (row.due_date is not None and (row.due_date - today).days <= 30) or (
                 row.due_mileage is not None
                 and miles is not None
+                and not reading["stale"]
                 and row.due_mileage - miles <= 1000
             ):
                 status = "upcoming"

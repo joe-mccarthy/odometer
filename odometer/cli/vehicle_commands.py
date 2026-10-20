@@ -198,7 +198,8 @@ def delete_vehicle(
             service = VehicleService(session)
             vehicle = service.get_vehicle(registration)
             if not typer.confirm(
-                f"Delete vehicle {vehicle.registration} and all associated expenses and fuel logs?"
+                f"Delete vehicle {vehicle.registration} and all associated expenses, fuel logs, "
+                "and active/completed reminders?"
             ):
                 console.print("Delete cancelled.")
                 return
@@ -208,5 +209,6 @@ def delete_vehicle(
 
     console.print(
         f"Deleted vehicle [bold]{result.registration}[/bold], "
-        f"{result.expense_count} expenses, and {result.fuel_log_count} fuel logs."
+        f"{result.expense_count} expenses, and {result.fuel_log_count} fuel logs, "
+        f"{result.reminder_count} active/completed reminders."
     )

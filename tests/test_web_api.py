@@ -89,6 +89,7 @@ def test_vehicle_lifecycle_and_cli(client):
         "registration": "AB12 CDE",
         "expense_count": 1,
         "fuel_log_count": 1,
+        "reminder_count": 0,
     }
     assert client.get(f"/api/vehicles/{identifier}").status_code == 404
 

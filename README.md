@@ -428,7 +428,7 @@ Dates use the local calendar. Mileage observations are selected by record date t
 ID across fuel and expenses, rather than maximum miles. Initial mileage alone is
 an undated baseline and cannot establish mileage status. Observations older than
 **90 days** remain usable but are labeled stale; an unreached stale threshold is
-unknown unless a date or known mileage already establishes due/upcoming.
+unknown unless a date establishes due/upcoming or known mileage establishes due.
 
 `reminder edit ID --title "Annual service" --category SERVICE --due-date 2027-02-20`
 replaces the title/category/thresholds while preserving ID/vehicle; omitted
@@ -465,3 +465,10 @@ initialize the target, write records or create a backup. Dates, IDs, nulls, inte
 pence and full/partial fills are preserved, including fuel-expense deduplication.
 Version 1 covers vehicles, fuel and expenses only; it does not restore reminders.
 Use SQLite backups for a full database snapshot. Keep exports and backups private.
+
+HTTP monetary integer fields retain numeric values and include additive `_exact`
+string companions for lossless browser display, including aggregate totals and
+rounded monthly averages beyond int64. Fuel PUT preserves stored full/partial
+state when `is_full_tank` is omitted; explicit true/false changes it. Vehicle
+deletion also removes active and completed reminders; all confirmation surfaces
+disclose this cascade and results include the reminder count.

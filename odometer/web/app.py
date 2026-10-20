@@ -66,9 +66,9 @@ def wire(value: Any) -> Any:
         value = asdict(value)
     if isinstance(value, dict):
         result = {key: wire(item) for key, item in value.items()}
-        # Keep numeric API contracts, with lossless companions for browser edit forms.
-        for key in ("total_cost_pence", "amount_pence"):
-            if key in value and isinstance(value[key], int):
+        # Preserve numeric API contracts and provide exact monetary display companions.
+        for key in value:
+            if key.endswith("_pence") and type(value[key]) is int:
                 result[key + "_exact"] = str(value[key])
         return result
     if isinstance(value, (list, tuple)):
@@ -305,7 +305,9 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
         fuel_id: str, body: FuelUpdate, db: Session = session_dependency
     ) -> JSONResponse:
         values = body.model_dump(exclude={"fuel_tank_litres"})
-        # Only unit price distinguishes omission from explicit recalculation.
+        # Preserve omitted partial-fill state and unit-price recalculation semantics.
+        if "is_full_tank" not in body.model_fields_set:
+            values.pop("is_full_tank")
         if "price_per_litre_pence" not in body.model_fields_set:
             values.pop("price_per_litre_pence")
         values["date_"] = values.pop("date")

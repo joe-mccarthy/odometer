@@ -102,7 +102,10 @@ class VehiclesScreen(Screen[None]):
     def on_screen_resume(self) -> None:
         """Refresh after returning to this screen."""
         if self.is_mounted:
+            message = self.query_one("#message", Static).content
             self.refresh_table()
+            if str(message).startswith("Deleted "):
+                self.query_one("#message", Static).update(message)
 
     def action_open_selected(self) -> None:
         """Open the selected vehicle."""
@@ -125,7 +128,8 @@ class VehiclesScreen(Screen[None]):
         self.app.push_screen(
             ConfirmDeleteModal(
                 "Delete vehicle",
-                f"Delete {registration} and all associated expenses and fuel logs?",
+                f"Delete {registration} and all associated expenses, fuel logs, "
+                "and active/completed reminders?",
             ),
             callback=lambda confirmed: self._after_delete(vehicle_id, confirmed),
         )
@@ -149,7 +153,8 @@ class VehiclesScreen(Screen[None]):
         self.refresh_table()
         self.query_one("#message", Static).update(
             f"Deleted {result.registration}, {result.expense_count} expenses, "
-            f"and {result.fuel_log_count} fuel logs."
+            f"and {result.fuel_log_count} fuel logs, "
+            f"{result.reminder_count} active/completed reminders."
         )
 
 

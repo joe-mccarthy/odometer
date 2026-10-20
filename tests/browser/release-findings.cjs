@@ -1,0 +1,32 @@
+/* Disposable review-repairs-server.py fixture; checks exact rendered values and cascade disclosure. */
+const {chromium}=require('playwright');
+const assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({headless:true});
+ const page=await browser.newPage({viewport:{width:320,height:800}});
+ const origin=process.env.ORIGIN||'http://127.0.0.1:8899';
+ const errors=[],external=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ page.on('request',r=>{if(new URL(r.url()).origin!==origin)external.push(r.url());});
+ await page.goto(origin);
+ await page.locator('#status').filter({hasText:'Up to date'}).waitFor();
+ const expected='£92,233,720,368,547,758.07';
+ assert.ok((await page.locator('#fuel-list').innerText()).includes(expected));
+ assert.ok((await page.locator('#expense-list').innerText()).includes(expected));
+ const summary=await page.evaluate(async()=>await(await fetch('/api/summary?year=2026')).json());
+ const format=p=>{const n=BigInt(p);return '£'+new Intl.NumberFormat('en-GB').format(n/100n)+'.'+String(n%100n).padStart(2,'0');};
+ assert.ok((await page.locator('#metrics').innerText()).includes(format(summary.overall.total_spend_pence_exact)));
+ assert.ok((await page.locator('body').innerText()).includes(format(summary.rolling.all_months_average_pence_exact)));
+ assert.equal(await page.evaluate(()=>money('123456')), '£1,234.56');
+ assert.equal(await page.evaluate(()=>money('0')), '£0.00');
+ await page.locator('#delete-vehicle').click();
+ assert.match(await page.locator('#confirm-text').innerText(),/active\/completed reminders/);
+ await page.locator('#confirm button').filter({hasText:'Cancel'}).click();
+ const v=await page.locator('#vehicle').inputValue();
+ await page.evaluate(async v=>{for(const title of ['active','done']){const r=await(await fetch(`/api/vehicles/${v}/reminders`,{method:'POST',headers:{'Content-Type':'application/json','X-Odometer-Request':'1'},body:JSON.stringify({title,category:'MOT',due_mileage:500})})).json();if(title==='done')await fetch(`/api/reminders/${r.id}/complete`,{method:'POST',headers:{'Content-Type':'application/json','X-Odometer-Request':'1'},body:'{}'});}},v);
+ await page.locator('#delete-vehicle').click();
+ await page.locator('#confirm button').filter({hasText:'Delete'}).click();
+ await page.locator('#status').filter({hasText:'2 active/completed reminders'}).waitFor();
+ assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
+ await browser.close();console.log('PASS exact rows, aggregates, normal GBP, cancel/confirm cascade and local-only requests');
+})().catch(e=>{console.error(e);process.exit(1)});
