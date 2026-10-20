@@ -108,8 +108,12 @@ class FuelService:
             raise InvalidFuelLogError(str(exc)) from exc
         vehicle = self.vehicle_service.get_vehicle(current.vehicle_id)
         history = self.repository.list(vehicle_id=current.vehicle_id, limit=None)
-        self.validate_candidate_history(
-            vehicle, [candidate if row.id == current.id else row for row in history]
+        from odometer.services.history_validation import validate_fuel_history
+
+        validate_fuel_history(
+            vehicle,
+            [candidate if row.id == current.id else row for row in history],
+            baseline=history,
         )
         if candidate.price_per_litre_pence is None:
             candidate.price_per_litre_pence = candidate.total_cost_pence / candidate.litres

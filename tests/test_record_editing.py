@@ -230,3 +230,66 @@ def test_valid_older_corrections_and_derived_totals(session):
     service.update_fuel_log(rows[2].id, is_full_tank=False)
     with pytest.raises(CalculationUnavailableError):
         calculations.mpg_stats(vehicle.id)
+
+
+def test_persisted_legacy_tie_allows_unrelated_corrections(session):
+    vehicle = VehicleService(session).create_vehicle(
+        registration="LEGACY", initial_mileage=0, fuel_tank_litres=60
+    )
+    service = FuelService(session)
+    for identifier, day, miles in [("z", 1, 100), ("a", 1, 200), ("later", 2, 300)]:
+        service.repository.add(
+            FuelLog(
+                id=identifier,
+                vehicle_id=vehicle.id,
+                date=date(2026, 1, day),
+                odometer_miles=miles,
+                litres=20,
+                total_cost_pence=3000,
+            )
+        )
+    session.expire_all()
+    service.update_fuel_log("z", notes="corrected", date_=date(2026, 1, 1), odometer_miles=100)
+    service.update_fuel_log("later", total_cost_pence=1234)
+    session.expire_all()
+    assert session.get(FuelLog, "z").notes == "corrected"
+    assert session.get(FuelLog, "later").total_cost_pence == 1234
+    before = session.get(FuelLog, "z").model_dump()
+    with pytest.raises(InvalidFuelLogError):
+        service.update_fuel_log("z", odometer_miles=150)
+    session.expire_all()
+    assert session.get(FuelLog, "z").model_dump() == before
+    with pytest.raises(InvalidFuelLogError):
+        service.update_fuel_log("later", odometer_miles=50)
+    # Imports still reject conflicts without an explicit persisted baseline.
+    with pytest.raises(InvalidFuelLogError):
+        service.validate_candidate_history(
+            vehicle, service.repository.list(vehicle_id=vehicle.id, limit=None)
+        )
+    # A chronology correction that resolves the legacy conflict is allowed.
+    service.update_fuel_log("z", odometer_miles=250)
+    service.validate_candidate_history(
+        vehicle, service.repository.list(vehicle_id=vehicle.id, limit=None)
+    )
+
+
+@pytest.mark.parametrize("category", [None, "", "   ", 42])
+def test_invalid_expense_category_is_actionable_and_atomic(session, category):
+    vehicle, _, _ = history(session)
+    service = ExpenseService(session)
+    row = service.add_expense(
+        vehicle_identifier=vehicle.id, category="SERVICE", amount_pence=100, date_=date(2026, 1, 1)
+    )
+    before = row.model_dump()
+    with pytest.raises(InvalidExpenseError, match="category is required"):
+        service.update_expense(row.id, category=category)
+    session.expire_all()
+    session.refresh(row)
+    assert row.model_dump() == before
+    result = CliRunner().invoke(app, ["expense", "edit", row.id, "--category", ""])
+    assert result.exit_code != 0
+    assert "category is required" in result.output
+    assert isinstance(result.exception, SystemExit)
+    session.expire_all()
+    session.refresh(row)
+    assert row.model_dump() == before

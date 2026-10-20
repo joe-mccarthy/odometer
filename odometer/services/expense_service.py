@@ -123,10 +123,12 @@ class ExpenseService:
         return expense
 
     @staticmethod
-    def _parse_category(category: ExpenseCategory | str) -> ExpenseCategory:
+    def _parse_category(category: object) -> ExpenseCategory:
         """Convert enum or user-entered category text into `ExpenseCategory`."""
         if isinstance(category, ExpenseCategory):
             return category
+        if not isinstance(category, str) or not category.strip():
+            raise InvalidExpenseError("Expense category is required; choose a valid category.")
         try:
             return ExpenseCategory.from_input(category)
         except ValueError as exc:

@@ -151,7 +151,7 @@ def edit_expense(
         if mileage is not None:
             changes["odometer_miles"] = mileage
         if category is not None:
-            changes["category"] = category or None
+            changes["category"] = category
         if description is not None:
             changes["description"] = description or None
         if vendor is not None:

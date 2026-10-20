@@ -8,8 +8,25 @@ from odometer.models.vehicle import Vehicle
 from odometer.services.exceptions import InvalidFuelLogError
 
 
-def validate_fuel_history(vehicle: Vehicle, history: list[FuelLog]) -> None:
+def validate_fuel_history(
+    vehicle: Vehicle, history: list[FuelLog], *, baseline: list[FuelLog] | None = None
+) -> None:
     """Validate all candidate records before a caller persists any of them."""
+    # Corrections may preserve an existing conflict, but cannot introduce or alter one.
+    existing_edges = set()
+    ordered_baseline = sorted(baseline or [], key=lambda item: (item.date, item.id))
+    for left, right in zip(ordered_baseline, ordered_baseline[1:], strict=False):
+        if right.odometer_miles < left.odometer_miles:
+            existing_edges.add(
+                (
+                    left.id,
+                    left.date,
+                    left.odometer_miles,
+                    right.id,
+                    right.date,
+                    right.odometer_miles,
+                )
+            )
     previous: FuelLog | None = None
     for row in sorted(history, key=lambda item: (item.date, item.id)):
         if row.vehicle_id != vehicle.id:
@@ -28,7 +45,19 @@ def validate_fuel_history(vehicle: Vehicle, history: list[FuelLog]) -> None:
             not math.isfinite(row.price_per_litre_pence) or row.price_per_litre_pence <= 0
         ):
             raise InvalidFuelLogError("Fuel price must be greater than zero.")
-        if previous is not None and row.odometer_miles < previous.odometer_miles:
+        if (
+            previous is not None
+            and row.odometer_miles < previous.odometer_miles
+            and (
+                previous.id,
+                previous.date,
+                previous.odometer_miles,
+                row.id,
+                row.date,
+                row.odometer_miles,
+            )
+            not in existing_edges
+        ):
             raise InvalidFuelLogError(
                 f"Fuel mileage on {row.date} ({row.odometer_miles}) cannot be lower "
                 f"than {previous.date} ({previous.odometer_miles})."

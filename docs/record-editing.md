@@ -11,17 +11,22 @@ Criteria: 5.1–5.4 in the product acceptance matrix.
   overridden. Whole-history validation checks initial mileage, positive finite
   litres/prices, positive integer pence, tank capacity and chronology in date/ID
   order, including both neighbors. Equal mileage is allowed. Creation behavior
-  remains unchanged.
+  remains unchanged. Corrections supply persisted baseline history: an existing
+  descending adjacent pair is tolerated only while both IDs, dates and mileages
+  remain identical. New or changed conflicts are rejected. Unrelated notes or
+  cost corrections therefore remain possible on legacy same-day histories.
 - Import integration: `validate_fuel_history(vehicle, complete_candidate_rows)`
   in `odometer.services.history_validation` performs no database writes. Pass
   all final rows for each vehicle in any input order, before committing an import
-  transaction; do not call append-only creation for historical imports.
+  transaction; do not call append-only creation for historical imports. Imports
+  omit the optional baseline and retain strict complete-history validation.
 - HTTP: PUT `/api/fuel/{id}` and `/api/expenses/{id}` accept complete editable
   creation fields, excluding vehicle/tank changes. Existing host, origin,
   request-header and bounded-body guards apply; PUT requires JSON content type.
 - CLI: `fuel edit ID` / `expense edit ID` change supplied options only. GBP uses
   the existing shared parser and integer-pence storage. Empty optional strings
-  clear text; `--clear-mileage` clears optional expense mileage.
+  clear text; `--clear-mileage` clears optional expense mileage. Empty or non-text
+  categories raise an actionable domain validation error before any write.
 - TUI: `e` opens the selected record prefilled, with vehicle fixed. Save uses
   shared services; invalid drafts stay open, Cancel/Escape writes nothing.
 - Browser: Edit precedes Delete, with a named native dialog, GBP values, retained
