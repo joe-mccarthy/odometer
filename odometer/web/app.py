@@ -304,7 +304,10 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
     def update_fuel(
         fuel_id: str, body: FuelUpdate, db: Session = session_dependency
     ) -> JSONResponse:
-        values = body.model_dump(exclude={"fuel_tank_litres"}, exclude_unset=True)
+        values = body.model_dump(exclude={"fuel_tank_litres"})
+        # Only unit price distinguishes omission from explicit recalculation.
+        if "price_per_litre_pence" not in body.model_fields_set:
+            values.pop("price_per_litre_pence")
         values["date_"] = values.pop("date")
         return resource(call(FuelService(db).update_fuel_log, fuel_log_id=fuel_id, **values))
 
