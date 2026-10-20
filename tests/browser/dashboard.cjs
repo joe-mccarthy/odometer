@@ -94,16 +94,16 @@ const AxeBuilder = require("@axe-core/playwright").default;
     true,
   );
   // Cancel and confirm record deletion.
-  await page.locator("#expense-list button").click();
+  await page.locator("#expense-list button.danger").click();
   await page.locator("#confirm button[value=cancel]").click();
   assert.equal(await page.locator("#expense-list tbody tr").count(), 1);
-  await page.locator("#expense-list button").click();
+  await page.locator("#expense-list button.danger").click();
   await Promise.all([
     page.waitForResponse((r) => r.request().method() === "DELETE"),
     page.locator("#confirm button[value=delete]").click(),
   ]);
   await ready();
-  assert.match(await page.locator("#expense-list").textContent(), /No records/);
+  assert.match(await page.locator("#expense-list").textContent(), /No expenses recorded/);
   assert(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
