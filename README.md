@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-supported-2496ED)](Dockerfile)
 
-**Odometer** is a local-first CLI and TUI application for tracking the true cost of owning a vehicle.
+**Odometer** is a local-first CLI, TUI and browser application for tracking the true cost of owning a vehicle.
 
 > Status: v0.1.0 is the first GitHub-only testing release. Odometer is still
 > early-stage software and is not published to PyPI yet.
@@ -28,7 +28,7 @@ Odometer is designed to be:
 - CLI-first
 - TUI included
 - Docker-friendly
-- Extensible for a future web/API layer
+- Local browser dashboard with a shared service-backed API
 
 No cloud. No accounts. No subscriptions. Your data stays with you.
 
@@ -195,6 +195,35 @@ that selector and scopes those screens to the only vehicle automatically. Press 
 vehicle, expense, or fuel screens to add records. Press `delete` on vehicle, expense, or
 fuel screens to delete the selected row after confirmation.
 
+## Local Browser Usage
+
+After `poetry install`, start the browser dashboard:
+
+```bash
+poetry run odometer web
+```
+
+Open `http://127.0.0.1:8765`. The foreground server initialises the configured
+SQLite database, binds only IPv4 loopback and stops with Ctrl+C. Use
+`poetry run odometer web --port 8876` for another local port. CLI, TUI and web
+share the database selected by `ODOMETER_DB_PATH`; use a disposable path when
+trying the app. No Node build, account, remote assets or cloud service is needed.
+Host/origin checks protect browser mutations; reverse proxies and LAN hosting
+are unsupported. Any process running as your local user can access your data.
+
+The dashboard supports vehicle context, fuel and expenses, summaries, tank updates,
+sold/archive status and confirmed deletion. Money entry is GBP; storage remains
+integer pence. MPG uses full-to-full imperial gallons including intervening partial
+fills. Export and online backup are available through the CLI commands below.
+
+Current limits: record lists show at most the newest 1,000 rows; no general record
+editing, reactivation, import or browser export/backup controls are provided.
+Chromium has been tested; Firefox/WebKit, native devices, screen readers and large
+datasets remain unverified. See [browser smoke steps](tests/browser/smoke.md).
+Before a manual file-copy backup or restore, stop the web server as well as CLI/TUI
+sessions. The `backup` command supports a running database through SQLite online
+backup; restore only while all Odometer processes are stopped.
+
 ## Docker Usage
 
 Build the image:
@@ -332,3 +361,34 @@ The v0.1.0 release includes:
 Odometer is open source and licensed under the GNU General Public License v3.0 only (GPL-3.0-only).
 
 See the [LICENSE](LICENSE) file for details.
+
+### Portable exports and SQLite backups
+
+These commands read the configured local database (`ODOMETER_DB_PATH` applies),
+include inactive vehicles, and never overwrite an existing destination. Initialise
+new databases with `odometer init` first. Destination parent directories must exist.
+
+```bash
+odometer export json odometer-export.json
+odometer export csv vehicles vehicles.csv
+odometer export csv fuel fuel.csv
+odometer export csv expenses expenses.csv
+odometer backup odometer-backup.db
+```
+
+JSON format version 1 contains `format_version`, `vehicles`, `fuel`, and `expenses`.
+Records retain identifiers, relationships, timestamps, dates, nulls and all model
+fields. Monetary totals remain integer pence; fractional fuel unit prices retain
+their stored precision. CSV uses the same field names, ISO dates, lowercase
+booleans and empty cells for nulls (CSV cannot distinguish null from empty text).
+Exports contain raw records rather than calculated totals: fuel-category expenses
+and fuel logs remain separate, preserving existing reporting deduplication rules.
+No import command is provided.
+
+Each export reads a consistent SQLite snapshot. Backups use SQLite's online backup
+API, include committed WAL data, and pass `PRAGMA integrity_check` before publication.
+They are standalone SQLite files, suitable for opening with SQLite or using as an
+`ODOMETER_DB_PATH`. Commands never initialise or migrate the source database. Output
+is created locally with owner-only permissions; exports and backups contain your
+private records, so choose their storage location accordingly. Publication requires
+a filesystem supporting hard links in the destination directory.
