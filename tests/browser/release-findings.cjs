@@ -19,6 +19,15 @@ const assert=require('node:assert/strict');
  assert.ok((await page.locator('body').innerText()).includes(format(summary.rolling.all_months_average_pence_exact)));
  assert.equal(await page.evaluate(()=>money('123456')), '£1,234.56');
  assert.equal(await page.evaluate(()=>money('0')), '£0.00');
+ for (const width of [320, 390]) {
+   await page.setViewportSize({width,height:800});
+   const bounds=await page.evaluate(()=>({
+     viewport:innerWidth, document:document.documentElement.scrollWidth,
+     elements:[...document.querySelectorAll('.metrics > div, .metrics strong, .monthly-chart, .chart-scale span')].map(e=>({text:e.textContent,left:e.getBoundingClientRect().left,right:e.getBoundingClientRect().right}))
+   }));
+   assert.ok(bounds.document<=bounds.viewport, `document ${bounds.document} exceeds ${bounds.viewport}`);
+   for(const item of bounds.elements) assert.ok(item.left>=0 && item.right<=bounds.viewport, `overflow ${JSON.stringify(item)}`);
+ }
  await page.locator('#delete-vehicle').click();
  assert.match(await page.locator('#confirm-text').innerText(),/active\/completed reminders/);
  await page.locator('#confirm button').filter({hasText:'Cancel'}).click();
@@ -28,5 +37,5 @@ const assert=require('node:assert/strict');
  await page.locator('#confirm button').filter({hasText:'Delete'}).click();
  await page.locator('#status').filter({hasText:'2 active/completed reminders'}).waitFor();
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
- await browser.close();console.log('PASS exact rows, aggregates, normal GBP, cancel/confirm cascade and local-only requests');
+ await browser.close();console.log('PASS exact rows, aggregates, normal GBP, 320/390px reflow, cancel/confirm cascade and local-only requests');
 })().catch(e=>{console.error(e);process.exit(1)});
