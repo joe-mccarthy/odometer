@@ -3,9 +3,10 @@
 import math
 from datetime import date
 
+from odometer.models.expense import Expense
 from odometer.models.fuel import FuelLog
 from odometer.models.vehicle import Vehicle
-from odometer.services.exceptions import InvalidFuelLogError
+from odometer.services.exceptions import InvalidExpenseError, InvalidFuelLogError
 
 
 def validate_fuel_history(
@@ -63,3 +64,15 @@ def validate_fuel_history(
                 f"than {previous.date} ({previous.odometer_miles})."
             )
         previous = row
+
+
+def validate_expense(vehicle: Vehicle, expense: "Expense") -> None:
+    """Validate a detached expense for corrections and portable imports."""
+    if expense.vehicle_id != vehicle.id:
+        raise InvalidExpenseError("Expense vehicle relationship cannot change.")
+    if type(expense.amount_pence) is not int or expense.amount_pence <= 0:
+        raise InvalidExpenseError("Expense amount must be positive integer pence.")
+    if expense.odometer_miles is not None and (
+        type(expense.odometer_miles) is not int or expense.odometer_miles < vehicle.initial_mileage
+    ):
+        raise InvalidExpenseError("Expense mileage cannot be lower than initial mileage.")

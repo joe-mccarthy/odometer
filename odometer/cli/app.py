@@ -4,6 +4,7 @@ import typer
 
 from odometer.cli import config_commands, expense_commands, fuel_commands, vehicle_commands
 from odometer.cli.helpers import console
+from odometer.cli.import_commands import import_json
 from odometer.cli.portability_commands import backup, export_app
 from odometer.cli.summary_commands import calc_app, summary_app
 from odometer.cli.web_commands import web
@@ -43,3 +44,5 @@ app.add_typer(export_app, name="export")
 app.command("backup")(backup)
 
 app.command("web")(web)
+
+app.command("import")(import_json)

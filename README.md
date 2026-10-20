@@ -403,3 +403,21 @@ The browser offers Edit beside each record, and the TUI uses `e` on a selected r
 Corrections preserve IDs and vehicle relationships and validate neighboring fuel readings.
 HTTP clients can replace editable fields with `PUT /api/fuel/{id}` and
 `PUT /api/expenses/{id}` using the same local Origin and request headers as creation.
+
+### Import a version-1 JSON export
+
+Preview first: `odometer import export.json --conflict-policy reject --dry-run`.
+Apply: `odometer import export.json --conflict-policy reject --backup before-import.db`.
+The backup option uses the online SQLite backup service and aborts import if it fails.
+For a new database, omit `--backup`; there is no existing database to back up.
+
+Import is append-only: the required `reject` policy rejects duplicate IDs within
+an entity, existing target IDs and duplicate active registrations. It never merges,
+replaces or regenerates IDs. Every fuel/expense must reference a vehicle in the
+file. Unsupported versions, schema errors and domain errors reject the entire
+file with located diagnostics and intended counts. Commit rechecks conflicts under
+a writer lock and writes all three entities in one transaction. Dry runs never
+initialize the target, write records or create a backup. Dates, IDs, nulls, integer
+pence and full/partial fills are preserved, including fuel-expense deduplication.
+Version 1 covers vehicles, fuel and expenses only; it does not restore reminders.
+Use SQLite backups for a full database snapshot. Keep exports and backups private.

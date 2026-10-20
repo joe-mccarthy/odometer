@@ -9,6 +9,7 @@ from odometer.models.enums import ExpenseCategory
 from odometer.models.expense import Expense
 from odometer.repositories.expense_repository import ExpenseRepository
 from odometer.services.exceptions import ExpenseNotFoundError, InvalidExpenseError
+from odometer.services.history_validation import validate_expense
 from odometer.services.vehicle_service import VehicleService
 
 
@@ -77,13 +78,7 @@ class ExpenseService:
         except ValidationError as exc:
             raise InvalidExpenseError(str(exc)) from exc
         vehicle = self.vehicle_service.get_vehicle(current.vehicle_id)
-        if type(candidate.amount_pence) is not int or candidate.amount_pence <= 0:
-            raise InvalidExpenseError("Expense amount must be positive integer pence.")
-        if candidate.odometer_miles is not None and (
-            type(candidate.odometer_miles) is not int
-            or candidate.odometer_miles < vehicle.initial_mileage
-        ):
-            raise InvalidExpenseError("Expense mileage cannot be lower than initial mileage.")
+        validate_expense(vehicle, candidate)
         for key in allowed - {"date_"}:
             setattr(current, key, getattr(candidate, key))
         current.date = candidate.date
