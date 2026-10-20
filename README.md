@@ -50,18 +50,29 @@ No cloud. No accounts. No subscriptions. Your data stays with you.
 
 ## Run Locally from Source
 
+You need Python 3.12 or newer (below 4.0), Git, and Poetry 2.4.x. The project is
+not published to PyPI; run it from this repository.
+
 ```bash
+git clone https://github.com/joe-mccarthy/odometer.git
+cd odometer
 poetry install
 poetry run odometer --help
 ```
 
-Initialise a local development database:
+Initialise your local database:
 
 ```bash
 poetry run odometer init
 ```
 
 ## Basic Usage
+
+Amounts such as `--amount` and `--purchase-price` are in GBP pounds, mileage is
+in miles, and fuel quantities are in litres. Enter the complete odometer reading
+for `--mileage`, rather than the distance travelled since the last record.
+Expense and fuel dates default to today; use `--date YYYY-MM-DD` for older records.
+Vehicle registrations are normalised, so `"AB12 CDE"` can be used as `AB12CDE`.
 
 Add a vehicle:
 
@@ -108,7 +119,31 @@ Show a summary:
 poetry run odometer summary --vehicle AB12CDE
 ```
 
+## Understanding the Calculations
+
+- **UK MPG** uses imperial gallons (4.54609 litres per gallon). The first full
+  tank establishes a baseline; a later full tank at a higher mileage closes the
+  first measurable segment. Partial fills between them are included. Use
+  `fuel add --partial` when you do not fill the tank; fills default to `--full`.
+- **Running cost per mile** divides recorded fuel and non-fuel expenses by miles
+  driven since the vehicle's initial mileage. A later odometer reading is needed
+  before a cost per mile can be calculated.
+- **Ownership cost per mile** also includes the purchase price. It is available
+  only when a purchase price is recorded; it does not estimate depreciation or
+  subtract a resale value.
+
+A single fuel log is enough to record spending, but it will not produce MPG yet.
+
 ## CLI Commands
+
+Use `--help` on a command group or subcommand to see its options:
+
+```bash
+poetry run odometer vehicle --help
+poetry run odometer fuel add --help
+```
+
+Common commands:
 
 ```bash
 poetry run odometer config show
@@ -174,6 +209,7 @@ Run commands:
 docker compose run --rm odometer --help
 docker compose run --rm odometer init
 docker compose run --rm odometer vehicle list
+docker compose run --rm odometer tui
 ```
 
 Docker stores data in `./data` on the host and `/data/odometer.db` in the container.
@@ -188,6 +224,14 @@ Show the active paths:
 poetry run odometer config show
 ```
 
+### Backups
+
+Close any running Odometer CLI or TUI sessions, then copy the SQLite file shown by
+`config show` to a safe location. For Docker Compose, this file is
+`./data/odometer.db` on the host. To restore a backup, close Odometer and replace
+the active database file with the saved copy, or point `ODOMETER_DB_PATH` at a
+copy of the backup.
+
 ## Environment Variables
 
 - `ODOMETER_DB_PATH`: override the SQLite database path.
@@ -195,8 +239,14 @@ poetry run odometer config show
 Example:
 
 ```bash
-ODOMETER_DB_PATH=./odometer.db poetry run odometer init
+export ODOMETER_DB_PATH="$PWD/odometer.db"
+poetry run odometer init
+poetry run odometer tui
 ```
+
+This shell syntax is for Bash and similar shells. In PowerShell, set
+`$env:ODOMETER_DB_PATH = "$PWD/odometer.db"` before running the same Poetry commands.
+Keep the override set for subsequent commands to use the same database.
 
 ## Developer Setup and Contributing
 
@@ -279,6 +329,6 @@ The v0.1.0 release includes:
 
 ## Licence
 
-Odometer is open source and licensed under the GNU General Public License v3.0 (GPL-3.0).
+Odometer is open source and licensed under the GNU General Public License v3.0 only (GPL-3.0-only).
 
 See the [LICENSE](LICENSE) file for details.
