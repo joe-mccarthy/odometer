@@ -28,7 +28,10 @@ class Body(BaseModel):
     @field_validator("*", mode="before")
     @classmethod
     def iso_dates(cls, value: Any, info: ValidationInfo) -> Any:
-        if info.field_name in {"date", "purchase_date"} and value is not None:
+        if (
+            info.field_name in {"date", "purchase_date", "due_date", "next_due_date"}
+            and value is not None
+        ):
             if not isinstance(value, str):
                 raise ValueError("Use YYYY-MM-DD")
             try:
@@ -90,3 +93,15 @@ class ExpenseCreate(Body):
     description: StrictStr | None = None
     vendor: StrictStr | None = None
     notes: StrictStr | None = None
+
+
+class ReminderInput(Body):
+    title: StrictStr
+    category: ExpenseCategory
+    due_date: date | None = None
+    due_mileage: Integer | None = None
+
+
+class ReminderComplete(Body):
+    next_due_date: date | None = None
+    next_due_mileage: Integer | None = None

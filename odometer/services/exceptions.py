@@ -31,3 +31,7 @@ class InvalidFuelLogError(OdometerError):
 
 class CalculationUnavailableError(OdometerError):
     """Raised when a calculation cannot be made from available data."""
+
+
+class ReminderNotFoundError(OdometerError):
+    """Raised when a reminder cannot be found."""

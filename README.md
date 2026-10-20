@@ -403,3 +403,40 @@ The release includes:
 Odometer is open source and licensed under the GNU General Public License v3.0 only (GPL-3.0-only).
 
 See the [LICENSE](LICENSE) file for details.
+
+### Browser data downloads
+
+Data tools downloads full version-1 JSON, Vehicles/Fuel/Expenses CSV, or an
+integrity-checked SQLite online backup. Files include all vehicles (including
+sold and archived) regardless of dashboard filters, and contain private data.
+JSON/CSV contain only vehicles, fuel and expenses; SQLite backups retain all
+persisted tables, including reminders. Downloads stay local and accept no server
+filesystem paths. Restore a backup only while all Odometer processes are stopped.
+The server prepares each completed file in a private temporary directory and
+removes it before returning bytes; preparation requires memory for the file.
+
+### Local reminders
+
+`odometer reminder add --vehicle AB12CDE --title "Annual service" --category SERVICE --due-date 2027-01-20 --due-mileage 42000`
+creates a per-vehicle occurrence. `reminder list` shows status, thresholds and the
+latest dated fuel/expense mileage with its source; `--upcoming` narrows to due,
+upcoming and unknown mileage status. Default lists exclude sold/archived vehicles;
+`--include-inactive` reveals their retained reminders and history.
+
+Due means date is today/past **or** latest recorded mileage reaches the threshold.
+Upcoming means not due and within **30 calendar days or 1,000 miles**, inclusive.
+Dates use the local calendar. Mileage observations are selected by record date then
+ID across fuel and expenses, rather than maximum miles. Initial mileage alone is
+an undated baseline and cannot establish mileage status. Observations older than
+**90 days** remain usable but are labeled stale; an unreached stale threshold is
+unknown unless a date or known mileage already establishes due/upcoming.
+
+`reminder edit ID --title "Annual service" --category SERVICE --due-date 2027-02-20`
+replaces the title/category/thresholds while preserving ID/vehicle; omitted
+thresholds are cleared. Supply at least one threshold. `reminder complete ID`
+retains completed history. Optional `--next-due-date` and/or `--next-due-mileage`
+create one linked next occurrence atomically. There is no inferred recurrence.
+`reminder delete ID` asks for confirmation. Browser Reminders offers the same
+operations, grouped statuses, retained completion history and mileage provenance.
+No email, push, account or external lookup is involved. SQLite backups preserve
+all occurrences; version-1 JSON and CSV still contain vehicles/fuel/expenses only.

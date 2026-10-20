@@ -217,6 +217,7 @@ async function mutate(form, action) {
       e.disabled = e.dataset.wasDisabled === "true";
     });
     updatePageButtons();
+    $("add-reminder").disabled = !$("vehicle").value;
     if ($("error").hidden) {
       if (focus?.isConnected && !focus.closest("[hidden]")) focus.focus();
       else $("vehicle").focus();
@@ -543,6 +544,8 @@ async function load(preferred = $("vehicle").value) {
   $("summaries").replaceChildren();
   $("records").hidden = true;
   $("vehicle-actions").hidden = true;
+  $("reminder-list").replaceChildren();
+  $("add-reminder").disabled = true;
   try {
     const include = $("inactive").checked;
     const list = await api(`/vehicles?include_inactive=${include}`);
@@ -594,6 +597,8 @@ async function load(preferred = $("vehicle").value) {
     const summary = await api("/summary?" + query);
     if (token !== generation) return;
     renderSummary(summary);
+    await loadReminders(token);
+    if (token !== generation) return;
     $("records").hidden = !id;
     $("record-hint").hidden = !!id;
     $("vehicle-actions").hidden = !id;
@@ -666,3 +671,307 @@ $("tank-form").onsubmit = (e) => {
   });
 };
 load();
+
+// Downloads always cover the database, independently of dashboard context.
+document.querySelectorAll("[data-download]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    if (button.getAttribute("aria-disabled") === "true") return;
+    button.setAttribute("aria-disabled", "true");
+    $("download-error").textContent = "";
+    $("download-status").textContent = "Preparing download…";
+    let url;
+    try {
+      const kind =
+        button.dataset.download === "csv"
+          ? $("csv-record-type").value
+          : button.dataset.download;
+      const response = await fetch(`/api/downloads/${kind}`);
+      if (!response.ok)
+        throw new Error("Could not prepare download. Try again.");
+      const blob = await response.blob();
+      url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = response.headers
+        .get("Content-Disposition")
+        .match(/filename="([^"]+)"/)[1];
+      document.body.append(link);
+      link.click();
+      link.remove();
+      $("download-status").textContent =
+        "Download prepared; check your browser downloads.";
+    } catch (error) {
+      $("download-status").textContent = "";
+      $("download-error").textContent = error.message;
+    } finally {
+      button.removeAttribute("aria-disabled");
+      if (url) setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  });
+});
+
+const reminderForm = $("reminder-form"),
+  reminderDialog = $("reminder-dialog");
+let reminderMode,
+  reminderRow,
+  reminderTrigger,
+  reminderSaving = false,
+  reminderDraft;
+categories.forEach((c) => {
+  node("option", c, reminderForm.elements.category).value = c;
+});
+function reminderError(error) {
+  const box = $("reminder-error");
+  box.replaceChildren();
+  box.hidden = false;
+  node(
+    "p",
+    error.message ||
+      "Save could not be confirmed. Refresh before trying again.",
+    box,
+  );
+  reminderForm
+    .querySelectorAll("[aria-invalid]")
+    .forEach((el) => el.removeAttribute("aria-invalid"));
+  for (const [path, message] of Object.entries(error.fields || {})) {
+    const name = path.replace(/^body\./, "").replace(/^next_/, "");
+    const input = reminderForm.elements.namedItem(name);
+    if (input) {
+      input.setAttribute("aria-invalid", "true");
+      const link = node("a", message, box);
+      link.href = "#" + input.id;
+      link.onclick = (event) => {
+        event.preventDefault();
+        input.focus();
+      };
+    }
+  }
+  box.focus();
+}
+for (const input of reminderForm.querySelectorAll("input,select"))
+  input.id = "reminder-" + input.name;
+function openReminder(mode, row, trigger) {
+  reminderMode = mode;
+  reminderRow = row;
+  reminderTrigger = trigger;
+  reminderForm.reset();
+  $("reminder-error").hidden = true;
+  reminderForm
+    .querySelectorAll("[aria-invalid]")
+    .forEach((el) => el.removeAttribute("aria-invalid"));
+  const completing = mode === "complete";
+  $("reminder-details").hidden = completing;
+  reminderForm.elements.title.required = !completing;
+  for (const name of ["title", "category", "due_date", "due_mileage"])
+    if (row && !completing) reminderForm.elements[name].value = row[name] ?? "";
+  $("reminder-dialog-heading").textContent =
+    `${completing ? "Complete" : mode === "edit" ? "Edit" : "Add"} reminder · ${vehicles.find((v) => v.id === (row?.vehicle_id || $("vehicle").value))?.registration || "vehicle"}`;
+  $("reminder-save").textContent = completing
+    ? "Complete reminder"
+    : "Save reminder";
+  $("reminder-dialog-hint").textContent = completing
+    ? "Optional next thresholds create a new occurrence. Blank completes only; history is retained."
+    : "Supply at least one due date or due mileage. Both are retained when supplied.";
+  reminderDraft = JSON.stringify(
+    Object.fromEntries(new FormData(reminderForm)),
+  );
+  reminderDialog.showModal();
+  (completing
+    ? reminderForm.elements.due_date
+    : reminderForm.elements.title
+  ).focus();
+}
+function cancelReminder(event) {
+  if (event) event.preventDefault();
+  if (reminderSaving) return;
+  if (
+    JSON.stringify(Object.fromEntries(new FormData(reminderForm))) !==
+      reminderDraft &&
+    !window.confirm("Discard reminder changes?")
+  )
+    return;
+  reminderDialog.close();
+}
+$("reminder-cancel").onclick = cancelReminder;
+reminderDialog.addEventListener("cancel", cancelReminder);
+reminderDialog.addEventListener("close", () => {
+  if (reminderTrigger?.isConnected) reminderTrigger.focus();
+  else $("reminder-heading").focus();
+});
+$("add-reminder").onclick = (event) =>
+  openReminder("add", null, event.currentTarget);
+reminderForm.onsubmit = async (event) => {
+  event.preventDefault();
+  if (reminderSaving) return;
+  const date = reminderForm.elements.due_date.value || null;
+  const rawMiles = reminderForm.elements.due_mileage.value;
+  const miles = rawMiles === "" ? null : Number(rawMiles);
+  if (miles !== null && (!Number.isSafeInteger(miles) || miles < 0)) {
+    reminderError({
+      message: "Use a nonnegative safe whole number.",
+      fields: { due_mileage: "Check due mileage" },
+    });
+    return;
+  }
+  if (reminderMode !== "complete" && date === null && miles === null) {
+    reminderError({
+      message: "Supply at least one due threshold.",
+      fields: { due_date: "Add a due date or mileage" },
+    });
+    return;
+  }
+  reminderSaving = true;
+  $("reminder-save").setAttribute("aria-disabled", "true");
+  let wrote = false;
+  try {
+    const path =
+      reminderMode === "add"
+        ? `/vehicles/${encodeURIComponent($("vehicle").value)}/reminders`
+        : `/reminders/${encodeURIComponent(reminderRow.id)}${reminderMode === "complete" ? "/complete" : ""}`;
+    const body =
+      reminderMode === "complete"
+        ? { next_due_date: date, next_due_mileage: miles }
+        : {
+            title: reminderForm.elements.title.value,
+            category: reminderForm.elements.category.value,
+            due_date: date,
+            due_mileage: miles,
+          };
+    await api(path, reminderMode === "edit" ? "PUT" : "POST", body);
+    wrote = true;
+    reminderDialog.close();
+    await loadReminders(generation);
+    $("reminder-heading").focus();
+    $("status").textContent =
+      reminderMode === "complete"
+        ? "Reminder completed; history retained."
+        : "Reminder saved.";
+  } catch (error) {
+    if (wrote) {
+      showError(
+        new Error(
+          "Saved. Could not refresh reminders; use Refresh to see current values.",
+        ),
+      );
+    } else reminderError(error);
+  } finally {
+    reminderSaving = false;
+    $("reminder-save").removeAttribute("aria-disabled");
+  }
+};
+async function loadReminders(token) {
+  const query = new URLSearchParams({
+    include_inactive: String($("inactive").checked),
+  });
+  if ($("vehicle").value) query.set("vehicle_id", $("vehicle").value);
+  const rows = await api("/reminders?" + query);
+  if (token !== generation) return;
+  $("add-reminder").disabled = !$("vehicle").value;
+  $("reminder-hint").hidden = !!$("vehicle").value;
+  const root = $("reminder-list");
+  root.replaceChildren();
+  for (const [status, label] of [
+    ["due", "Due"],
+    ["upcoming", "Upcoming"],
+    ["unknown", "Mileage status unknown"],
+    ["later", "Later"],
+    ["completed", "Completed"],
+  ]) {
+    node("h3", label, root);
+    const group = rows.filter((item) => item.status === status);
+    if (!group.length)
+      node(
+        "p",
+        status === "completed"
+          ? "No completed reminders."
+          : "No reminders in this group.",
+        root,
+      );
+    for (const item of group) {
+      const r = item.reminder,
+        reading = item.reading;
+      const article = node("article", null, root);
+      node(
+        "h4",
+        `${item.registration} · ${item.vehicle_status} · ${r.title}`,
+        article,
+      );
+      node(
+        "p",
+        `${r.category} · ${label} · Due date: ${r.due_date ?? "not set"} · Due odometer: ${r.due_mileage ?? "not set"} miles`,
+        article,
+      );
+      node(
+        "p",
+        `Latest recorded mileage: ${reading.miles} miles; date: ${reading.date ?? "unknown"}; source: ${reading.source}. ${reading.message}`,
+        article,
+      );
+      if (r.completed_at)
+        node(
+          "p",
+          `Completed: ${r.completed_at}${r.previous_id ? " · Previous occurrence: " + r.previous_id : ""}`,
+          article,
+        );
+      if (!r.completed_at)
+        for (const mode of ["edit", "complete"]) {
+          const button = node(
+            "button",
+            mode === "edit" ? "Edit" : "Complete",
+            article,
+          );
+          button.setAttribute(
+            "aria-label",
+            `${mode === "edit" ? "Edit" : "Complete"} reminder ${r.title} for ${item.registration}`,
+          );
+          button.onclick = () => openReminder(mode, r, button);
+        }
+      const remove = node("button", "Delete", article);
+      remove.className = "danger";
+      remove.setAttribute(
+        "aria-label",
+        `Delete reminder ${r.title} for ${item.registration}`,
+      );
+      remove.onclick = () => {
+        const dialog = $("confirm");
+        $("confirm-text").textContent =
+          `Delete reminder ${r.title} for ${item.registration}? This cannot be undone.`;
+        dialog.returnValue = "cancel";
+        dialog.showModal();
+        dialog.addEventListener(
+          "close",
+          async () => {
+            if (dialog.returnValue !== "delete") {
+              remove.focus();
+              return;
+            }
+            remove.disabled = true;
+            let wrote = false;
+            try {
+              await api(`/reminders/${encodeURIComponent(r.id)}`, "DELETE");
+              wrote = true;
+              await loadReminders(generation);
+              $("reminder-heading").focus();
+              $("status").textContent = "Reminder deleted.";
+            } catch (error) {
+              showError(
+                wrote
+                  ? new Error(
+                      "Deleted. Could not refresh reminders; use Refresh.",
+                    )
+                  : error,
+              );
+              remove.disabled = false;
+            }
+          },
+          { once: true },
+        );
+      };
+    }
+  }
+  if (!rows.length)
+    node(
+      "p",
+      "No reminders yet. Select a vehicle and choose Add reminder.",
+      root,
+    );
+}

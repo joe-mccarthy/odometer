@@ -34,3 +34,22 @@ dates, independent filters, invalid ranges, context resets, keyboard controls,
 320px layout, axe and local-only requests.
 
 Limits: there is no general editing, reactivation, import or HTTP export in v1. Automated Chromium and axe checks supplement, and do not replace, independent acceptance or manual assistive-technology testing.
+Limits: lists show the newest 1,000 records; there is no general editing, reactivation, import, pagination UI in v1. Automated Chromium and axe checks supplement, and do not replace, independent acceptance or manual assistive-technology testing.
+
+Download regression: start the app with disposable data on port 8878 and run
+`NODE_PATH=/tmp/odometer-browser-tests/node_modules node tests/browser/downloads.cjs`.
+This checks file bytes and names, all five choices, keyboard focus, accessible
+failures, 320px reflow, scoped axe and local-only requests.
+
+## Reminders (#9)
+
+Against a disposable empty database, run `tests/browser/reminders.cjs` with
+`NODE_PATH` pointing to Playwright and @axe-core/playwright. `PORT` defaults to
+8765; configure `create_app(..., port=PORT)` to match. Covers create, thresholds,
+validation/draft retention and retry, edit, complete with/without a linked next
+occurrence, completed history, cancel-first deletion, sold/inactive visibility,
+focus, 320px reflow, scoped axe and absence of external requests. Python
+`tests/test_reminders.py` fixes the calendar for 30-day/1,000-mile and 90-day
+staleness boundaries, missing/baseline/provenance, rollback/concurrent retry,
+CLI/API and real downloaded SQLite retention. Manual assistive-technology and
+cross-browser checks remain separate.

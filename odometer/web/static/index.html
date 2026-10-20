@@ -89,6 +89,43 @@
         </section>
       </div>
       <p id="record-hint">Select a vehicle to view and add fuel or expenses.</p>
+      <section aria-labelledby="reminder-heading">
+        <h2 id="reminder-heading" tabindex="-1">Reminders</h2>
+        <p>
+          Due when either threshold is reached. Upcoming: next 30 days or 1,000
+          miles, inclusive. Readings older than 90 days are stale. Local only;
+          no notifications.
+        </p>
+        <button id="add-reminder" type="button">Add reminder</button>
+        <p id="reminder-hint">Select a vehicle to add a reminder.</p>
+        <div id="reminder-list"></div>
+      </section>
+      <section aria-labelledby="data-tools-heading">
+        <h2 id="data-tools-heading">Data tools</h2>
+        <p>
+          Downloads include all vehicles, including sold and archived vehicles,
+          and contain private records. Vehicle and date filters do not limit
+          these files.
+        </p>
+        <p>
+          Exports contain portable vehicle, fuel and expense records only. A
+          SQLite backup is a database snapshot including reminders. Restore only
+          while all Odometer processes are stopped.
+        </p>
+        <button type="button" data-download="json">Download JSON export</button>
+        <label for="csv-record-type">CSV record type</label>
+        <select id="csv-record-type">
+          <option value="vehicles">Vehicles</option>
+          <option value="fuel">Fuel</option>
+          <option value="expenses">Expenses</option>
+        </select>
+        <button type="button" data-download="csv">Download CSV</button>
+        <button type="button" data-download="backup">
+          Download SQLite backup
+        </button>
+        <p id="download-status" role="status"></p>
+        <p id="download-error" role="alert"></p>
+      </section>
     </main>
     <footer>
       Stored in your local Odometer database. No cloud account or external
@@ -100,6 +137,30 @@
         <p id="confirm-text"></p>
         <button value="cancel" autofocus>Cancel</button>
         <button value="delete" class="danger">Delete permanently</button>
+      </form>
+    </dialog>
+    <dialog id="reminder-dialog" aria-labelledby="reminder-dialog-heading">
+      <h2 id="reminder-dialog-heading"></h2>
+      <div id="reminder-error" role="alert" tabindex="-1" hidden></div>
+      <form id="reminder-form" class="fields">
+        <div id="reminder-details">
+          <label>Title<input name="title" required /></label>
+          <label>Category<select name="category"></select></label>
+        </div>
+        <label id="reminder-date-label"
+          >Due date (optional)<input name="due_date" type="date"
+        /></label>
+        <label id="reminder-mileage-label"
+          >Due odometer (miles, optional)<input
+            name="due_mileage"
+            type="number"
+            min="0"
+            max="9007199254740991"
+            step="1"
+        /></label>
+        <p id="reminder-dialog-hint">Supply at least one threshold.</p>
+        <button id="reminder-save">Save reminder</button>
+        <button id="reminder-cancel" type="button">Cancel</button>
       </form>
     </dialog>
     <noscript

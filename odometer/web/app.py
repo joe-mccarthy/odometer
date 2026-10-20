@@ -1,6 +1,7 @@
 """Service-backed HTTP routes for the local browser application."""
 
 import logging
+import tempfile
 from collections.abc import Callable, Iterator
 from dataclasses import asdict, is_dataclass
 from datetime import UTC, date, datetime
@@ -10,7 +11,7 @@ from typing import Any, TypedDict
 from fastapi import Depends, FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.exc import OperationalError
 from sqlmodel import Session
@@ -25,9 +26,18 @@ from odometer.services import exceptions as exc
 from odometer.services.calculation_service import CalculationService
 from odometer.services.expense_service import ExpenseService
 from odometer.services.fuel_service import FuelService
+from odometer.services.portability_service import backup_database, export_data
+from odometer.services.reminder_service import ReminderService
 from odometer.services.summary_service import SummaryService
 from odometer.services.vehicle_service import VehicleService
-from odometer.web.schemas import ExpenseCreate, FuelCreate, VehicleCreate, VehiclePatch
+from odometer.web.schemas import (
+    ExpenseCreate,
+    FuelCreate,
+    ReminderComplete,
+    ReminderInput,
+    VehicleCreate,
+    VehiclePatch,
+)
 from odometer.web.security import LocalBoundary, error
 
 logger = logging.getLogger(__name__)
@@ -171,7 +181,12 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
     async def service_error(request: Request, exception: exc.OdometerError) -> JSONResponse:
         if isinstance(
             exception,
-            (exc.VehicleNotFoundError, exc.ExpenseNotFoundError, exc.FuelLogNotFoundError),
+            (
+                exc.VehicleNotFoundError,
+                exc.ExpenseNotFoundError,
+                exc.FuelLogNotFoundError,
+                exc.ReminderNotFoundError,
+            ),
         ):
             return error(404, "not_found", str(exception))
         if isinstance(exception, exc.DuplicateActiveVehicleError):
@@ -196,6 +211,37 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
         return error(500, "internal_error", "An internal error occurred")
 
     session_dependency = Depends(session)
+
+    @app.get("/api/downloads/{kind}")
+    def download(kind: str, request: Request) -> Response:
+        # No user-controlled path, filename or filter reaches the filesystem.
+        if request.query_params:
+            raise InputError("Downloads do not accept paths or filters")
+        choices = {
+            "json": ("json", "application/json", None),
+            "vehicles": ("csv", "text/csv", "vehicles"),
+            "fuel": ("csv", "text/csv", "fuel"),
+            "expenses": ("csv", "text/csv", "expenses"),
+            "backup": ("sqlite3", "application/vnd.sqlite3", None),
+        }
+        if kind not in choices:
+            raise HTTPException(404)
+        extension, media_type, dataset = choices[kind]
+        filename = f"odometer-{kind}-{datetime.now(UTC):%Y-%m-%d}.{extension}"
+        # Read the completed snapshot before responding so cleanup also happens
+        # on preparation errors and disconnected clients.
+        with tempfile.TemporaryDirectory(prefix="odometer-download-") as directory:
+            destination = Path(directory) / filename
+            if kind == "backup":
+                backup_database(path, destination)
+            else:
+                export_data(path, destination, dataset)
+            content = destination.read_bytes()
+        return Response(
+            content,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @app.get("/api/vehicles")
     def vehicles(include_inactive: str = "false", db: Session = session_dependency) -> JSONResponse:
@@ -277,6 +323,48 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
     @app.delete("/api/expenses/{expense_id}")
     def delete_expense(expense_id: str, db: Session = session_dependency) -> JSONResponse:
         return resource(ExpenseService(db).delete_expense(expense_id))
+
+    @app.get("/api/reminders")
+    def reminders(
+        vehicle_id: str | None = None,
+        include_inactive: str = "false",
+        db: Session = session_dependency,
+    ) -> JSONResponse:
+        return resource(
+            ReminderService(db).list(
+                vehicle_identifier=vehicle_id,
+                include_inactive=boolean(include_inactive, "include_inactive"),
+            )
+        )
+
+    @app.post("/api/vehicles/{vehicle_id}/reminders", status_code=201)
+    def create_reminder(
+        vehicle_id: str, body: ReminderInput, db: Session = session_dependency
+    ) -> JSONResponse:
+        return resource(
+            call(ReminderService(db).create, vehicle_identifier=vehicle_id, **body.model_dump()),
+            status_code=201,
+        )
+
+    @app.put("/api/reminders/{reminder_id}")
+    def update_reminder(
+        reminder_id: str, body: ReminderInput, db: Session = session_dependency
+    ) -> JSONResponse:
+        return resource(
+            call(ReminderService(db).update, reminder_id=reminder_id, **body.model_dump())
+        )
+
+    @app.post("/api/reminders/{reminder_id}/complete")
+    def complete_reminder(
+        reminder_id: str, body: ReminderComplete, db: Session = session_dependency
+    ) -> JSONResponse:
+        return resource(
+            call(ReminderService(db).complete, reminder_id=reminder_id, **body.model_dump())
+        )
+
+    @app.delete("/api/reminders/{reminder_id}")
+    def delete_reminder(reminder_id: str, db: Session = session_dependency) -> JSONResponse:
+        return resource(ReminderService(db).delete(reminder_id))
 
     @app.get("/api/summary")
     def summary(
