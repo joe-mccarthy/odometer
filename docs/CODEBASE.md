@@ -14,18 +14,19 @@ If you are new to the project, read the code in this order:
 4. `odometer/cli/` to see how commands call the service layer.
 5. `odometer/tui/app.py` to see how the TUI gathers data for screens.
 6. `odometer/tui/screens/` to see how each terminal screen is rendered.
-7. `tests/` to see expected behaviour and edge cases.
+7. `odometer/web/` for the local FastAPI server and static browser UI.
+8. `tests/` to see expected behaviour and edge cases.
 
 ## High-Level Shape
 
 Odometer is a local-first Python application. It stores data in SQLite with
 SQLModel, exposes command-line commands with Typer, and exposes a terminal UI
-with Textual.
+with Textual, plus a local browser UI with FastAPI.
 
 The code is intentionally layered:
 
 ```text
-CLI commands and TUI screens
+CLI commands, TUI screens and browser API
         |
         v
 Application/service methods
@@ -38,7 +39,7 @@ SQLModel models and SQLite
 ```
 
 The important rule is that validation and business behaviour belong in services,
-not in the CLI or TUI. The CLI and TUI are presentation layers.
+not in presentation code. CLI, TUI and web are presentation layers.
 
 ## Package Map
 
@@ -80,6 +81,18 @@ widgets, keep selected table row ids, call `OdometerTUI`, and refresh widgets.
 
 Contains small reusable Textual widgets such as metric cards and terminal bar
 charts.
+
+`odometer/web/`
+
+Contains the loopback-only FastAPI server, API routes and bundled static browser
+assets. Routes call the shared services. Host/origin checks constrain browser
+mutations; this server is intended for local single-user use. `odometer web`
+starts Uvicorn in the foreground. Lists are limited to the newest 1,000 records.
+
+`odometer/services/portability_service.py`
+
+Exports consistent JSON/CSV snapshots and online SQLite backups. CLI entry
+points live in `odometer/cli/portability_commands.py`; there is no import flow.
 
 `odometer/db/`
 
@@ -140,7 +153,7 @@ uses an operating-system-specific app data directory from `platformdirs`.
 Common flow:
 
 ```text
-CLI/TUI action
+CLI/TUI/web action
   -> initialise_database()
   -> get_session()
   -> service method
@@ -236,6 +249,9 @@ The command entry point is `odometer/main.py`, which exports the Typer app from
 - `fuel`
 - `summary`
 - `calc`
+- `export`
+- `backup`
+- `web`
 
 Most commands follow this shape:
 
@@ -371,7 +387,7 @@ For a data-backed feature, the usual order is:
 1. Add or update the model if new stored fields are needed.
 2. Add repository queries only if the existing list/get methods are not enough.
 3. Add service behaviour and validation.
-4. Expose it in the CLI or TUI.
+4. Expose it in the appropriate CLI, TUI or web presentation layer.
 5. Add tests at the lowest useful layer.
 
 Prefer service tests for business rules. Add CLI or TUI tests when presentation

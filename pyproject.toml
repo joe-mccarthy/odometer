@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "odometer"
-version = "0.1.0"
-description = "A local-first CLI/TUI application for tracking the true cost of vehicle ownership."
+version = "0.2.0"
+description = "A local-first CLI, TUI and browser application for tracking the true cost of vehicle ownership."
 authors = ["Joe McCarthy"]
 license = "GPL-3.0-only"
 readme = "README.md"

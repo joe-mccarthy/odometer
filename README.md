@@ -9,7 +9,7 @@
 
 **Odometer** is a local-first CLI, TUI and browser application for tracking the true cost of owning a vehicle.
 
-> Status: v0.1.0 is the first GitHub-only testing release. Odometer is still
+> Status: v0.2.0 is a GitHub-only testing release. Odometer is still
 > early-stage software and is not published to PyPI yet.
 
 It helps you answer a simple question:
@@ -32,7 +32,7 @@ Odometer is designed to be:
 
 No cloud. No accounts. No subscriptions. Your data stays with you.
 
-## v0.1.0 Features
+## Features
 
 - Vehicle management by UK registration
 - Expense logging by category
@@ -46,7 +46,9 @@ No cloud. No accounts. No subscriptions. Your data stays with you.
 - Category breakdowns
 - Monthly and annual summaries
 - Textual TUI dashboard, tables, summaries, and terminal bar charts
-- Docker and Docker Compose support
+- Docker and Docker Compose support for CLI/TUI
+- Local browser dashboard and shared service-backed API
+- JSON/CSV exports and online SQLite backups
 
 ## Run Locally from Source
 
@@ -255,11 +257,42 @@ poetry run odometer config show
 
 ### Backups
 
-Close any running Odometer CLI or TUI sessions, then copy the SQLite file shown by
-`config show` to a safe location. For Docker Compose, this file is
-`./data/odometer.db` on the host. To restore a backup, close Odometer and replace
-the active database file with the saved copy, or point `ODOMETER_DB_PATH` at a
-copy of the backup.
+Prefer `poetry run odometer backup odometer-backup.db`, which safely snapshots a
+running database. See the export and backup commands below. For a manual copy or
+restore, stop all CLI, TUI and web processes first. Docker Compose stores the file
+at `./data/odometer.db`. Restore by replacing the configured database while all
+processes are stopped, or point `ODOMETER_DB_PATH` at a copy of the backup.
+
+### Portable exports and SQLite backups
+
+These commands read the configured local database (`ODOMETER_DB_PATH` applies),
+include inactive vehicles, and never overwrite an existing destination. Initialise
+new databases with `poetry run odometer init` first. Destination parent directories must exist.
+
+```bash
+poetry run odometer export json odometer-export.json
+poetry run odometer export csv vehicles vehicles.csv
+poetry run odometer export csv fuel fuel.csv
+poetry run odometer export csv expenses expenses.csv
+poetry run odometer backup odometer-backup.db
+```
+
+JSON format version 1 contains `format_version`, `vehicles`, `fuel`, and `expenses`.
+Records retain identifiers, relationships, timestamps, dates, nulls and all model
+fields. Monetary totals remain integer pence; fractional fuel unit prices retain
+their stored precision. CSV uses the same field names, ISO dates, lowercase
+booleans and empty cells for nulls (CSV cannot distinguish null from empty text).
+Exports contain raw records rather than calculated totals: fuel-category expenses
+and fuel logs remain separate, preserving existing reporting deduplication rules.
+No import command is provided.
+
+Each export reads a consistent SQLite snapshot. Backups use SQLite's online backup
+API, include committed WAL data, and pass `PRAGMA integrity_check` before publication.
+They are standalone SQLite files, suitable for opening with SQLite or using as an
+`ODOMETER_DB_PATH`. Commands never initialise or migrate the source database. Output
+is created locally with owner-only permissions; exports and backups contain your
+private records, so choose their storage location accordingly. Publication requires
+a filesystem supporting hard links in the destination directory.
 
 ## Environment Variables
 
@@ -343,9 +376,9 @@ Odometer is GitHub-only while release testing is in progress. The release
 workflow builds distribution artifacts, uploads checksums, and publishes a
 GitHub Release. It does not publish to PyPI.
 
-## v0.1.0 Scope
+## Release Scope
 
-The v0.1.0 release includes:
+The release includes:
 
 - Core CLI commands for vehicles, expenses, fuel logs, summaries, and calculations.
 - SQLite-backed local storage with Docker support.
@@ -361,34 +394,3 @@ The v0.1.0 release includes:
 Odometer is open source and licensed under the GNU General Public License v3.0 only (GPL-3.0-only).
 
 See the [LICENSE](LICENSE) file for details.
-
-### Portable exports and SQLite backups
-
-These commands read the configured local database (`ODOMETER_DB_PATH` applies),
-include inactive vehicles, and never overwrite an existing destination. Initialise
-new databases with `odometer init` first. Destination parent directories must exist.
-
-```bash
-odometer export json odometer-export.json
-odometer export csv vehicles vehicles.csv
-odometer export csv fuel fuel.csv
-odometer export csv expenses expenses.csv
-odometer backup odometer-backup.db
-```
-
-JSON format version 1 contains `format_version`, `vehicles`, `fuel`, and `expenses`.
-Records retain identifiers, relationships, timestamps, dates, nulls and all model
-fields. Monetary totals remain integer pence; fractional fuel unit prices retain
-their stored precision. CSV uses the same field names, ISO dates, lowercase
-booleans and empty cells for nulls (CSV cannot distinguish null from empty text).
-Exports contain raw records rather than calculated totals: fuel-category expenses
-and fuel logs remain separate, preserving existing reporting deduplication rules.
-No import command is provided.
-
-Each export reads a consistent SQLite snapshot. Backups use SQLite's online backup
-API, include committed WAL data, and pass `PRAGMA integrity_check` before publication.
-They are standalone SQLite files, suitable for opening with SQLite or using as an
-`ODOMETER_DB_PATH`. Commands never initialise or migrate the source database. Output
-is created locally with owner-only permissions; exports and backups contain your
-private records, so choose their storage location accordingly. Publication requires
-a filesystem supporting hard links in the destination directory.
