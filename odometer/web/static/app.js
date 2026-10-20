@@ -276,25 +276,71 @@ async function confirmDelete(path, description) {
 function renderSummary(s) {
   $("metrics").replaceChildren();
   const o = s.overall;
+  const reasons = {
+    no_driven_distance: "Add an odometer reading above the initial mileage.",
+    missing_purchase_price:
+      "Add the vehicle purchase price to calculate ownership cost.",
+    no_fuel_history:
+      "No fuel history. Record a full fill, then a later full fill at higher mileage.",
+    no_closed_segment:
+      "Record a later full fill at higher mileage to close a segment.",
+    invalid_full_interval:
+      "Full fills have no valid positive-distance interval. Check readings and record a later full fill at higher mileage.",
+  };
+  const cost = (value, codes) =>
+    value == null
+      ? `Not available — ${(codes || []).map((code) => reasons[code]).join(" ")}`
+      : number(value, " p");
   [
     ["Total spending", money(o.total_spend_pence)],
     ["Fuel", money(o.fuel_spend_pence)],
     ["Other expenses", money(o.non_fuel_spend_pence)],
     ["Distance", number(o.miles_driven, " miles")],
-    ["Running cost / mile", number(o.running_cost_per_mile_pence, " p")],
-    ["Ownership cost / mile", number(o.ownership_cost_per_mile_pence, " p")],
+    [
+      "Running cost / mile",
+      cost(o.running_cost_per_mile_pence, o.running_unavailable_reasons),
+    ],
+    [
+      "Ownership cost / mile",
+      cost(o.ownership_cost_per_mile_pence, o.ownership_unavailable_reasons),
+    ],
     [
       "Average UK MPG",
       s.mpg
         ? number(s.mpg.average_mpg)
         : $("vehicle").value
-          ? "Unavailable — needs two full fills"
-          : "Unavailable — select a vehicle",
+          ? `Not available — ${reasons[s.mpg_context?.reason]}`
+          : "Not available — Select a vehicle to view UK MPG.",
     ],
   ].forEach(([title, value]) => {
     const card = node("div", title, $("metrics"));
     node("strong", value, card);
   });
+  if (s.mpg_context) {
+    const details = node("details", null, $("metrics"));
+    node("summary", "How UK MPG was calculated", details);
+    node(
+      "p",
+      "A full fill establishes the baseline; its fuel is excluded. Partial fills after it and the closing full fill are included. A later full fill at higher mileage closes a segment. One imperial gallon = 4.54609 litres. MPG = miles / imperial gallons.",
+      details,
+    );
+    node("p", s.mpg_context.aggregation, details);
+    const segments = s.mpg_context.segments;
+    if (segments.length) {
+      node(
+        "p",
+        `Average interval: ${segments[0].start_date} to ${segments[segments.length - 1].date}; ${segments.length} closed segments.`,
+        details,
+      );
+    }
+    for (const segment of segments) {
+      node(
+        "p",
+        `${segment.start_date} (${segment.start_odometer_miles} miles) to ${segment.date} (${segment.end_odometer_miles} miles): ${segment.miles} miles; ${segment.litres} litres; ${number(segment.imperial_gallons)} imperial gallons; ${number(segment.uk_mpg)} UK MPG.`,
+        details,
+      );
+    }
+  }
   const root = $("summaries");
   root.replaceChildren();
   for (const [key, title] of [

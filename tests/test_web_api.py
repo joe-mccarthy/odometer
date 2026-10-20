@@ -116,7 +116,15 @@ def test_fuel_expense_summary_and_deletion(client):
         expense_path, json={"date": "2026-01-02", "category": "FUEL", "amount_pence": 99999}
     )
     summary = client.get(f"/api/summary?vehicle_id={identifier}&year=2026").json()
-    assert set(summary) == {"overall", "monthly", "annual", "categories", "rolling", "mpg"}
+    assert set(summary) == {
+        "overall",
+        "monthly",
+        "annual",
+        "categories",
+        "rolling",
+        "mpg",
+        "mpg_context",
+    }
     assert summary["overall"]["total_spend_pence"] == 23501
     assert summary["mpg"]["average_mpg"] == pytest.approx(300 / (65 / 4.54609))
     assert summary["mpg"]["segment_count"] == 1
@@ -343,3 +351,31 @@ def test_service_validation_scope(client, monkeypatch):
     response = client.post("/api/vehicles", json={"registration": "AB12 CDE", "initial_mileage": 0})
     assert response.status_code == 422
     assert response.json()["error"]["message"] == "Expected service validation"
+
+
+def test_metric_reasons_and_full_interval(client):
+    identifier = vehicle(client)["id"]
+    path = f"/api/summary?vehicle_id={identifier}"
+    empty = client.get(path).json()
+    assert empty["mpg_context"]["reason"] == "no_fuel_history"
+    assert empty["overall"]["running_unavailable_reasons"] == ["no_driven_distance"]
+    assert empty["overall"]["ownership_unavailable_reasons"] == [
+        "missing_purchase_price",
+        "no_driven_distance",
+    ]
+    fuel(client, identifier, 100)
+    assert client.get(path).json()["mpg_context"]["reason"] == "no_closed_segment"
+    fuel(client, identifier, 100)
+    assert client.get(path).json()["mpg_context"]["reason"] == "invalid_full_interval"
+    fuel(client, identifier, 200, is_full_tank=False, litres=15)
+    fuel(client, identifier, 400, litres=50)
+    result = client.get(path).json()
+    segment = result["mpg_context"]["segments"][0]
+    assert segment["start_odometer_miles"] == 100
+    assert segment["end_odometer_miles"] == 400
+    assert segment["miles"] == 300
+    assert segment["litres"] == 65
+    assert segment["imperial_gallons"] == pytest.approx(65 / 4.54609)
+    assert segment["uk_mpg"] == result["mpg"]["average_mpg"]
+    assert segment["start_date"] == segment["date"]
+    assert result["mpg_context"]["reason"] is None

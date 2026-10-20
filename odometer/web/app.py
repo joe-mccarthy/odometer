@@ -292,6 +292,9 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
                     "categories": service.category_breakdown(**scope),
                     "rolling": service.rolling_averages(**scope),
                     "mpg": mpg,
+                    "mpg_context": CalculationService(db).mpg_context(vehicle_id)
+                    if vehicle_id
+                    else None,
                 }
             )
         )

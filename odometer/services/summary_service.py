@@ -27,6 +27,8 @@ class OverallSummary:
     miles_driven: int | None
     running_cost_per_mile_pence: float | None
     ownership_cost_per_mile_pence: float | None
+    running_unavailable_reasons: tuple[str, ...]
+    ownership_unavailable_reasons: tuple[str, ...]
     average_monthly_spend_pence: int
 
 
@@ -109,6 +111,11 @@ class SummaryService:
             ),
             ownership_cost_per_mile_pence=self.calculations.cost_per_mile_pence(
                 ownership_cost, total_miles
+            ),
+            running_unavailable_reasons=("no_driven_distance",) if total_miles <= 0 else (),
+            ownership_unavailable_reasons=(
+                (("missing_purchase_price",) if not has_purchase_price else ())
+                + (("no_driven_distance",) if total_miles <= 0 else ())
             ),
             average_monthly_spend_pence=rolling.all_months_average_pence,
         )
