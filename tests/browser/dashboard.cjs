@@ -19,7 +19,7 @@ const AxeBuilder = require("@axe-core/playwright").default;
   const ready = () =>
     page
       .locator("#status")
-      .filter({ hasText: /Up to date|Saved/ })
+      .filter({ hasText: /Up to date|Saved|Vehicle deleted/ })
       .waitFor();
   await ready();
   await page.keyboard.press("Tab");
