@@ -60,7 +60,10 @@ def list_fuel(
     ] = None,
     date_from: Annotated[str | None, typer.Option("--from", help="Start date yyyy-mm-dd.")] = None,
     date_to: Annotated[str | None, typer.Option("--to", help="End date yyyy-mm-dd.")] = None,
-    limit: Annotated[int, typer.Option("--limit", help="Maximum rows.")] = 50,
+    limit: Annotated[
+        int, typer.Option("--limit", min=1, max=200, help="Maximum rows (1–200).")
+    ] = 50,
+    offset: Annotated[int, typer.Option("--offset", min=0, help="Rows to skip.")] = 0,
 ) -> None:
     """List fuel logs."""
     try:
@@ -71,6 +74,7 @@ def list_fuel(
                 date_from=parse_optional_date(date_from),
                 date_to=parse_optional_date(date_to),
                 limit=limit,
+                offset=offset,
             )
             vehicle_service = VehicleService(session)
             registrations = {

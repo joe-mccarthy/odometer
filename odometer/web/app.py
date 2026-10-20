@@ -36,6 +36,7 @@ STATIC = Path(__file__).with_name("static")
 
 class ListFilters(TypedDict, total=False):
     limit: int
+    offset: int
     ascending: bool
     date_from: date
     date_to: date
@@ -100,7 +101,8 @@ def integer(value: str, name: str, low: int, high: int) -> int:
 def filters(request: Request) -> ListFilters:
     query = request.query_params
     result: ListFilters = {
-        "limit": integer(query.get("limit", "50"), "limit", 1, 1000),
+        "limit": integer(query.get("limit", "50"), "limit", 1, 200),
+        "offset": integer(query.get("offset", "0"), "offset", 0, 2147483647),
         "ascending": boolean(query.get("ascending", "false"), "ascending"),
     }
     for name in ("date_from", "date_to"):
@@ -116,6 +118,22 @@ def filters(request: Request) -> ListFilters:
     if result.get("date_from", date.min) > result.get("date_to", date.max):
         raise InputError("date_from must not follow date_to")
     return result
+
+
+def history_page(
+    method: Callable[..., Any], request: Request, vehicle_id: str, **extra: Any
+) -> JSONResponse:
+    """Bounded SQL pages; offset stability applies to unchanged history only."""
+    options = filters(request)
+    rows = call(method, vehicle_identifier=vehicle_id, **extra, **options)
+    if not boolean(request.query_params.get("page", "false"), "page"):
+        return resource(rows)
+    offset = options.get("offset", 0)
+    limit = options.get("limit", 50)
+    options["offset"] = offset + limit
+    options["limit"] = 1
+    more = bool(call(method, vehicle_identifier=vehicle_id, **extra, **options))
+    return resource({"items": rows, "offset": offset, "limit": limit, "has_next": more})
 
 
 def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
@@ -217,9 +235,7 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
 
     @app.get("/api/vehicles/{vehicle_id}/fuel")
     def fuel(vehicle_id: str, request: Request, db: Session = session_dependency) -> JSONResponse:
-        return resource(
-            FuelService(db).list_fuel_logs(vehicle_identifier=vehicle_id, **filters(request))
-        )
+        return history_page(FuelService(db).list_fuel_logs, request, vehicle_id)
 
     @app.post("/api/vehicles/{vehicle_id}/fuel", status_code=201)
     def create_fuel(
@@ -243,10 +259,8 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
         category: ExpenseCategory | None = None,
         db: Session = session_dependency,
     ) -> JSONResponse:
-        return resource(
-            ExpenseService(db).list_expenses(
-                vehicle_identifier=vehicle_id, category=category, **filters(request)
-            )
+        return history_page(
+            ExpenseService(db).list_expenses, request, vehicle_id, category=category
         )
 
     @app.post("/api/vehicles/{vehicle_id}/expenses", status_code=201)

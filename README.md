@@ -218,7 +218,16 @@ sold/archive status and confirmed deletion. Money entry is GBP; storage remains
 integer pence. MPG uses full-to-full imperial gallons including intervening partial
 fills. Export and online backup are available through the CLI commands below.
 
-Current limits: record lists show at most the newest 1,000 rows; no general record
+Record histories use independent 50-row pages, newest date then ID first. Apply
+inclusive date filters (and expense category), or Clear filters. Context and local
+record changes restart paging; year affects summaries only. Refresh keeps filters
+and starts page one after external changes; traversal is stable on unchanged data.
+Summaries always use complete history. API lists accept `offset` (default 0),
+`limit` (default 50, maximum 200), and optional `page=true` for an object containing
+`items`, `offset`, `limit` and `has_next`; ordinary calls retain array responses.
+CLI `fuel list` and `expense list` also accept `--offset` and `--limit` (1–200).
+
+Current limits: no general record
 editing, reactivation, import or browser export/backup controls are provided.
 Chromium has been tested; Firefox/WebKit, native devices, screen readers and large
 datasets remain unverified. See [browser smoke steps](tests/browser/smoke.md).

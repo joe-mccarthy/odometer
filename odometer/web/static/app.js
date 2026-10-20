@@ -188,6 +188,7 @@ for (const [id, fields] of Object.entries(specs)) {
         body,
       );
       form.reset();
+      resetHistory();
       if (id === "vehicle-form") await load(result.id);
       else await load(selected);
     });
@@ -199,9 +200,10 @@ async function mutate(form, action) {
   clearError();
   $("status").textContent = "Saving…";
   const focus = document.activeElement;
-  document
-    .querySelectorAll("button,input,select")
-    .forEach((e) => (e.disabled = true));
+  document.querySelectorAll("button,input,select").forEach((e) => {
+    e.dataset.wasDisabled = String(e.disabled);
+    e.disabled = true;
+  });
   try {
     await action();
     $("status").textContent = "Saved. Current data refreshed.";
@@ -211,9 +213,10 @@ async function mutate(form, action) {
       "Changes were not confirmed. Check the error before trying again.";
   } finally {
     busy = false;
-    document
-      .querySelectorAll("button,input,select")
-      .forEach((e) => (e.disabled = false));
+    document.querySelectorAll("button,input,select").forEach((e) => {
+      e.disabled = e.dataset.wasDisabled === "true";
+    });
+    updatePageButtons();
     if ($("error").hidden) {
       if (focus?.isConnected && !focus.closest("[hidden]")) focus.focus();
       else $("vehicle").focus();
@@ -266,6 +269,7 @@ async function confirmDelete(path, description) {
       if (dialog.returnValue === "delete")
         mutate(null, async () => {
           await api(path, "DELETE");
+          resetHistory();
           await load(path.startsWith("/vehicles/") ? "" : $("vehicle").value);
           $("vehicle").focus();
         });
@@ -334,6 +338,203 @@ function renderSummary(s) {
     ],
   );
 }
+// Each table owns its filters and page. SQL offsets are stable on unchanged data;
+// Refresh restarts traversal after external changes. Summaries have separate scope.
+const history = {};
+for (const kind of ["fuel", "expense"]) {
+  const state = (history[kind] = {
+    offset: 0,
+    filters: {},
+    token: 0,
+    more: false,
+    loading: false,
+  });
+  const host = $(kind + "-list");
+  const form = node("form", null, host);
+  form.id = kind + "-filters";
+  form.className = "fields";
+  for (const [name, label] of [
+    ["date_from", "From date"],
+    ["date_to", "To date"],
+  ]) {
+    const input = node("input", null, node("label", label, form));
+    input.type = "date";
+    input.name = name;
+    input.id = kind + "-" + name;
+  }
+  if (kind === "expense") {
+    const select = node("select", null, node("label", "Category", form));
+    select.name = "category";
+    const all = node("option", "All categories", select);
+    all.value = "";
+    categories.forEach((c) => {
+      node("option", c, select).value = c;
+    });
+  }
+  node("button", "Apply filters", form);
+  const clear = node("button", "Clear filters", form);
+  clear.type = "button";
+  clear.onclick = () => {
+    form.reset();
+    state.filters = {};
+    state.offset = 0;
+    loadHistory(kind);
+  };
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    clearError();
+    const values = Object.fromEntries(new FormData(form));
+    if (
+      values.date_from &&
+      values.date_to &&
+      values.date_from > values.date_to
+    ) {
+      showError(
+        {
+          message: "From date must not follow To date.",
+          fields: { date_from: "Choose a date on or before To date." },
+        },
+        form,
+      );
+      return;
+    }
+    state.filters = Object.fromEntries(
+      Object.entries(values).filter(([, v]) => v),
+    );
+    state.offset = 0;
+    loadHistory(kind);
+  };
+  const heading = node("h3", "History", host);
+  heading.id = kind + "-range";
+  heading.tabIndex = -1;
+  const scope = node("p", null, host);
+  scope.id = kind + "-scope";
+  state.results = node("div", null, host);
+  const nav = node("nav", null, host);
+  nav.setAttribute("aria-label", kind + " pagination");
+  for (const [direction, text] of [
+    [-1, "Previous"],
+    [1, "Next"],
+  ]) {
+    const button = node("button", text, nav);
+    button.id = kind + (direction < 0 ? "-previous" : "-next");
+    button.onclick = () => {
+      state.offset += direction * 50;
+      loadHistory(kind, button);
+    };
+  }
+  node(
+    "p",
+    "History may change in other windows. Refresh restarts from page one.",
+    host,
+  );
+}
+function resetHistory() {
+  for (const state of Object.values(history)) {
+    state.offset = 0;
+    state.token++;
+  }
+}
+function updatePageButtons() {
+  for (const [kind, state] of Object.entries(history)) {
+    $(kind + "-previous").disabled = state.loading || state.offset === 0;
+    $(kind + "-next").disabled = state.loading || !state.more;
+  }
+}
+async function loadHistory(kind, trigger) {
+  clearError();
+  const state = history[kind],
+    token = ++state.token,
+    contextToken = generation;
+  const vehicle = $("vehicle").value;
+  if (!vehicle) return;
+  const v = vehicles.find((v) => v.id === vehicle);
+  state.loading = true;
+  updatePageButtons();
+  const endpoint = kind === "fuel" ? "fuel" : "expenses";
+  const query = new URLSearchParams({
+    ...state.filters,
+    limit: "50",
+    offset: String(state.offset),
+    page: "true",
+  });
+  $(kind + "-range").textContent = "Loading history…";
+  try {
+    const page = await api(
+      `/vehicles/${encodeURIComponent(vehicle)}/${endpoint}?${query}`,
+    );
+    if (token !== state.token || contextToken !== generation) return;
+    state.more = page.has_next;
+    state.results.replaceChildren();
+    const rows = page.items;
+    const label = rows.length
+      ? `${state.offset + 1}–${state.offset + rows.length} ${endpoint}`
+      : `0 ${endpoint}`;
+    $(kind + "-range").textContent = label;
+    $(kind + "-scope").textContent = [
+      v.registration,
+      state.filters.date_from
+        ? "From " + state.filters.date_from
+        : "All start dates",
+      state.filters.date_to ? "To " + state.filters.date_to : "All end dates",
+      state.filters.category || (kind === "expense" ? "All categories" : ""),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    if (!rows.length)
+      node(
+        "p",
+        Object.keys(state.filters).length
+          ? `No ${endpoint} match these filters. Use Clear filters.`
+          : `No ${endpoint} recorded for this vehicle. Add a record above.`,
+        state.results,
+      );
+    else
+      table(
+        state.results,
+        endpoint + " · newest date then ID first",
+        kind === "fuel"
+          ? ["Date", "Miles", "Litres", "Cost", "Tank", "Action"]
+          : ["Date", "Category", "Description", "Cost", "Action"],
+        rows.map((r) => [
+          ...(kind === "fuel"
+            ? [
+                r.date,
+                number(r.odometer_miles),
+                number(r.litres),
+                money(r.total_cost_pence),
+                r.is_full_tank ? "Full" : "Partial",
+              ]
+            : [
+                r.date,
+                r.category,
+                r.description || "—",
+                money(r.amount_pence),
+              ]),
+          deleteButton(
+            `/${endpoint}/${encodeURIComponent(r.id)}`,
+            `${v.registration} ${kind} on ${r.date}`,
+          ),
+        ]),
+      );
+    $("status").textContent = label + " loaded.";
+    return true;
+  } catch (error) {
+    if (token !== state.token || contextToken !== generation) return;
+    $(kind + "-range").textContent =
+      "History is not current. Use Refresh to retry.";
+    state.more = false;
+    showError(error, $(kind + "-filters"));
+    return false;
+  } finally {
+    if (token === state.token) {
+      state.loading = false;
+      updatePageButtons();
+      if (trigger && $("error").hidden)
+        (trigger.disabled ? $(kind + "-range") : trigger).focus();
+    }
+  }
+}
 async function load(preferred = $("vehicle").value) {
   const token = ++generation;
   clearError();
@@ -390,11 +591,7 @@ async function load(preferred = $("vehicle").value) {
       year: $("year").value,
     });
     if (id) query.set("vehicle_id", id);
-    const [summary, fuel, expenses] = await Promise.all([
-      api("/summary?" + query),
-      id ? api(`/vehicles/${encodeURIComponent(id)}/fuel?limit=1000`) : [],
-      id ? api(`/vehicles/${encodeURIComponent(id)}/expenses?limit=1000`) : [],
-    ]);
+    const summary = await api("/summary?" + query);
     if (token !== generation) return;
     renderSummary(summary);
     $("records").hidden = !id;
@@ -402,39 +599,15 @@ async function load(preferred = $("vehicle").value) {
     $("vehicle-actions").hidden = !id;
     if (id) {
       $("tank-form").elements.fuel_tank_litres.value = v.fuel_tank_litres || "";
-      for (const kind of ["fuel", "expense"])
-        $(kind + "-list").replaceChildren();
-      table(
-        $("fuel-list"),
-        "Fuel · newest first · up to 1,000 records",
-        ["Date", "Miles", "Litres", "Cost", "Tank", "Action"],
-        fuel.map((r) => [
-          r.date,
-          number(r.odometer_miles),
-          number(r.litres),
-          money(r.total_cost_pence),
-          r.is_full_tank ? "Full" : "Partial",
-          deleteButton(
-            `/fuel/${encodeURIComponent(r.id)}`,
-            `${v.registration} fuel on ${r.date}, ${money(r.total_cost_pence)}`,
-          ),
-        ]),
-      );
-      table(
-        $("expense-list"),
-        "Expenses · newest first · up to 1,000 records",
-        ["Date", "Category", "Description", "Cost", "Action"],
-        expenses.map((r) => [
-          r.date,
-          r.category,
-          r.description || "—",
-          money(r.amount_pence),
-          deleteButton(
-            `/expenses/${encodeURIComponent(r.id)}`,
-            `${v.registration} ${r.category} on ${r.date}, ${money(r.amount_pence)}`,
-          ),
-        ]),
-      );
+      const loaded = await Promise.all([
+        loadHistory("fuel"),
+        loadHistory("expense"),
+      ]);
+      if (token !== generation) return;
+      if (loaded.some((result) => result === false))
+        throw new Error(
+          "Could not load current history. Use Refresh to retry.",
+        );
     }
     $("status").textContent = "Up to date.";
   } catch (e) {
@@ -446,9 +619,18 @@ async function load(preferred = $("vehicle").value) {
     }
   }
 }
-$("vehicle").onchange = () => load();
-$("inactive").onchange = () => load();
-$("refresh").onclick = () => load();
+$("vehicle").onchange = () => {
+  resetHistory();
+  load();
+};
+$("inactive").onchange = () => {
+  resetHistory();
+  load();
+};
+$("refresh").onclick = () => {
+  resetHistory();
+  load();
+};
 $("year").value = new Date().getFullYear();
 $("year").onchange = () => {
   if ($("year").checkValidity() && $("year").value) load();

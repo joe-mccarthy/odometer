@@ -123,7 +123,9 @@ def test_fuel_expense_summary_and_deletion(client):
     assert len(summary["monthly"]) == 12
     assert client.get("/api/summary").json()["mpg"] is None
     assert client.get(f"{expense_path}?category=SERVICE").json() == [expense]
-    assert client.get(f"/api/vehicles/{identifier}/fuel?ascending=true&limit=1").json() == [first]
+    assert client.get(f"/api/vehicles/{identifier}/fuel?ascending=true&limit=1").json() == [
+        min([first, partial, last], key=lambda row: (row["date"], row["id"]))
+    ]
     assert client.get(f"/api/vehicles/{identifier}/fuel?date_from=2026-02-01").json() == []
     assert client.delete(f"/api/expenses/{expense['id']}").json() == expense
     for log in (first, partial, last):

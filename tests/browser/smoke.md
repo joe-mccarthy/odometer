@@ -26,4 +26,11 @@ Manual smoke steps:
 6. Cancel then confirm record deletion. Cancel then confirm vehicle deletion; its warning names the registration and all fuel/expense records. Verify the selected context returns safely to fleet.
 7. Stop the server and refresh: the error state must be readable. Restart and use Refresh. Check browser network requests stay on the local origin. Confirm ordinary CLI/TUI reads see saved browser records using this same disposable database.
 
-Limits: lists show the newest 1,000 records; there is no general editing, reactivation, import, HTTP export or pagination UI in v1. Automated Chromium and axe checks supplement, and do not replace, independent acceptance or manual assistive-technology testing.
+Pagination regression: seed a disposable database using `seed` in
+`tests/test_history_pagination.py`, add an empty vehicle registered `EMPTY 2`,
+and serve it on port 8877. Run `node tests/browser/pagination.cjs` with the same
+NODE_PATH. This traverses 1,205 records per kind, checks bounded responses, tied
+dates, independent filters, invalid ranges, context resets, keyboard controls,
+320px layout, axe and local-only requests.
+
+Limits: there is no general editing, reactivation, import or HTTP export in v1. Automated Chromium and axe checks supplement, and do not replace, independent acceptance or manual assistive-technology testing.

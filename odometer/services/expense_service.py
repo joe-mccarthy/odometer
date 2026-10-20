@@ -61,6 +61,7 @@ class ExpenseService:
         date_to: date | None = None,
         limit: int | None = 50,
         ascending: bool = False,
+        offset: int = 0,
     ) -> list[Expense]:
         """List expenses with optional filters."""
         vehicle_id = None
@@ -74,6 +75,7 @@ class ExpenseService:
             date_to=date_to,
             limit=limit,
             ascending=ascending,
+            offset=offset,
         )
 
     def delete_expense(self, expense_id: str) -> Expense:

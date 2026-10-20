@@ -84,6 +84,7 @@ class FuelService:
         date_to: date | None = None,
         limit: int | None = 50,
         ascending: bool = False,
+        offset: int = 0,
     ) -> list[FuelLog]:
         """List fuel logs with optional filters."""
         vehicle_id = None
@@ -95,6 +96,7 @@ class FuelService:
             date_to=date_to,
             limit=limit,
             ascending=ascending,
+            offset=offset,
         )
 
     def delete_fuel_log(self, fuel_log_id: str) -> FuelLog:
