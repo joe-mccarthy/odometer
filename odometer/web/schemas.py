@@ -105,3 +105,13 @@ class ReminderInput(Body):
 class ReminderComplete(Body):
     next_due_date: date | None = None
     next_due_mileage: Integer | None = None
+
+
+class FuelUpdate(FuelCreate):
+    """Complete editable record; vehicle tank capacity is a separate operation."""
+
+    @model_validator(mode="after")
+    def no_capacity_change(self) -> Self:
+        if "fuel_tank_litres" in self.model_fields_set:
+            raise ValueError("Change tank capacity using the vehicle controls")
+        return self

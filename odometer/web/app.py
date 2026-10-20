@@ -33,6 +33,7 @@ from odometer.services.vehicle_service import VehicleService
 from odometer.web.schemas import (
     ExpenseCreate,
     FuelCreate,
+    FuelUpdate,
     ReminderComplete,
     ReminderInput,
     VehicleCreate,
@@ -294,6 +295,14 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
             status_code=201,
         )
 
+    @app.put("/api/fuel/{fuel_id}")
+    def update_fuel(
+        fuel_id: str, body: FuelUpdate, db: Session = session_dependency
+    ) -> JSONResponse:
+        values = body.model_dump(exclude={"fuel_tank_litres"})
+        values["date_"] = values.pop("date")
+        return resource(call(FuelService(db).update_fuel_log, fuel_log_id=fuel_id, **values))
+
     @app.delete("/api/fuel/{fuel_id}")
     def delete_fuel(fuel_id: str, db: Session = session_dependency) -> JSONResponse:
         return resource(FuelService(db).delete_fuel_log(fuel_id))
@@ -319,6 +328,14 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
             call(ExpenseService(db).add_expense, vehicle_identifier=vehicle_id, **values),
             status_code=201,
         )
+
+    @app.put("/api/expenses/{expense_id}")
+    def update_expense(
+        expense_id: str, body: ExpenseCreate, db: Session = session_dependency
+    ) -> JSONResponse:
+        values = body.model_dump()
+        values["date_"] = values.pop("date")
+        return resource(call(ExpenseService(db).update_expense, expense_id=expense_id, **values))
 
     @app.delete("/api/expenses/{expense_id}")
     def delete_expense(expense_id: str, db: Session = session_dependency) -> JSONResponse:
@@ -394,6 +411,9 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
                     "categories": service.category_breakdown(**scope),
                     "rolling": service.rolling_averages(**scope),
                     "mpg": mpg,
+                    "mpg_context": CalculationService(db).mpg_context(vehicle_id)
+                    if vehicle_id
+                    else None,
                 }
             )
         )

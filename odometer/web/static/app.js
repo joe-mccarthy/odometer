@@ -43,8 +43,13 @@ function node(tag, text, parent) {
 }
 let vehicles = [],
   generation = 0,
-  busy = false;
+  busy = false,
+  initialContext = true,
+  creationFocus = false,
+  writeConfirmed = false;
+const errorRegion = () => $("vehicle-dialog").open ? $("vehicle-errors") : $("error");
 function clearError() {
+  $("vehicle-errors").replaceChildren();
   $("error").hidden = true;
   document.querySelectorAll(".field-error").forEach((e) => e.remove());
   document.querySelectorAll("[aria-invalid]").forEach((e) => {
@@ -53,9 +58,9 @@ function clearError() {
   });
 }
 function showError(error, form) {
-  $("error").textContent =
+  errorRegion().textContent =
     error.message || "Request failed. Check the local server and refresh.";
-  $("error").hidden = false;
+  errorRegion().hidden = false;
   for (const [path, message] of Object.entries(error.fields || {})) {
     const name = path.replace(/^body\./, "");
     const input = form?.elements.namedItem(name);
@@ -65,9 +70,9 @@ function showError(error, form) {
       hint.className = "field-error";
       hint.id = `${form.id}-${name}-error`;
       input.setAttribute("aria-describedby", hint.id);
-    } else $("error").textContent += `\n${name}: ${message}`;
+    } else errorRegion().textContent += `\n${name}: ${message}`;
   }
-  $("error").focus();
+  errorRegion().focus();
 }
 async function api(path, method = "GET", body) {
   const response = await fetch("/api" + path, {
@@ -81,6 +86,7 @@ async function api(path, method = "GET", body) {
   });
   const data = await response.json();
   if (!response.ok) throw data.error || new Error("Request failed");
+  if (method !== "GET") writeConfirmed = true;
   return data;
 }
 const specs = {
@@ -123,6 +129,7 @@ for (const [id, fields] of Object.entries(specs)) {
     input.name = name;
     input.id = `${id}-${name}`;
     input.required = required;
+    if (id === "vehicle-form") label.firstChild.textContent += required ? " (required)" : " (optional)";
     if (type === "select")
       categories.forEach((c) => {
         const o = node("option", c, input);
@@ -189,7 +196,11 @@ for (const [id, fields] of Object.entries(specs)) {
       );
       form.reset();
       resetHistory();
-      if (id === "vehicle-form") await load(result.id);
+      if (id === "vehicle-form") {
+        $("vehicle-dialog").close("saved");
+        creationFocus = true;
+        await load(result.id);
+      }
       else await load(selected);
     });
   });
@@ -197,9 +208,11 @@ for (const [id, fields] of Object.entries(specs)) {
 async function mutate(form, action) {
   if (busy) return;
   busy = true;
+  writeConfirmed = false;
   clearError();
   $("status").textContent = "Saving…";
   const focus = document.activeElement;
+  let failed = false;
   document.querySelectorAll("button,input,select").forEach((e) => {
     e.dataset.wasDisabled = String(e.disabled);
     e.disabled = true;
@@ -208,9 +221,13 @@ async function mutate(form, action) {
     await action();
     $("status").textContent = "Saved. Current data refreshed.";
   } catch (e) {
+    failed = true;
+    creationFocus = false;
     showError(e, form);
     $("status").textContent =
-      "Changes were not confirmed. Check the error before trying again.";
+      writeConfirmed
+        ? "Saved. Could not refresh totals; refresh to see current values."
+        : "Save could not be confirmed. Refresh before trying again.";
   } finally {
     busy = false;
     document.querySelectorAll("button,input,select").forEach((e) => {
@@ -218,8 +235,12 @@ async function mutate(form, action) {
     });
     updatePageButtons();
     $("add-reminder").disabled = !$("vehicle").value;
-    if ($("error").hidden) {
-      if (focus?.isConnected && !focus.closest("[hidden]")) focus.focus();
+    if (!failed) {
+      if (creationFocus) {
+        creationFocus = false;
+        $("context").focus();
+        $("status").textContent = "Saved. Vehicle added. Ready to record fuel or an expense.";
+      } else if (focus?.isConnected && !focus.closest("[hidden]")) focus.focus();
       else $("vehicle").focus();
     }
   }
@@ -251,6 +272,111 @@ function table(parent, title, headers, rows) {
     });
   });
 }
+function recordActions(kind, record, vehicle, path, description) {
+  const group = node("div");
+  const edit = node("button", "Edit", group);
+  edit.dataset.editId = record.id;
+  edit.setAttribute("aria-label", `Edit ${description}`);
+  edit.onclick = () => editRecord(kind, record, vehicle, edit);
+  group.append(deleteButton(path, description));
+  return group;
+}
+function editRecord(kind, record, vehicle, trigger) {
+  const dialog = node("dialog", null, document.body);
+  dialog.setAttribute("aria-labelledby", "edit-title");
+  node("h2", `Edit ${vehicle.registration} ${kind}`, dialog).id = "edit-title";
+  const errors = node("div", null, dialog);
+  errors.setAttribute("role", "alert");
+  errors.tabIndex = -1;
+  const form = node("form", null, dialog);
+  form.id = "edit-record";
+  const fields = specs[kind + "-form"].filter(([name]) => name !== "fuel_tank_litres");
+  if (kind === "fuel") fields.push(["price_per_litre_pence", "Price per litre (pence, optional)", "number"]);
+  for (const [name, title, type = "text", required = false] of fields) {
+    const label = node("label", title, form);
+    const input = node(type === "select" ? "select" : "input", null, label);
+    input.name = name;
+    input.required = required;
+    input.id = "edit-" + name;
+    if (type === "select") categories.forEach(c => { const o = node("option", c, input); o.value = c; });
+    else input.type = type === "checkbox" ? "checkbox" : type === "date" ? "date" : "text";
+    if (type === "checkbox") input.checked = record[name];
+    else input.value = record[name] == null ? "" : type === "money" ? (record[name] / 100).toFixed(2) : record[name];
+  }
+  const save = node("button", "Save changes", form);
+  const cancel = node("button", "Cancel", form);
+  cancel.type = "button";
+  const draft = () => JSON.stringify(fields.map(([n,,t]) => t === "checkbox" ? form.elements[n].checked : form.elements[n].value));
+  const initial = draft();
+  let saving = false;
+  function close() {
+    if (saving) return;
+    if (draft() !== initial) {
+      errors.replaceChildren();
+      node("p", "Discard changes?", errors);
+      const keep = node("button", "Keep editing", errors);
+      keep.type = "button";
+      const discard = node("button", "Discard changes", errors);
+      discard.type = "button";
+      keep.onclick = () => { errors.replaceChildren(); form.querySelector("input,select").focus(); };
+      discard.onclick = () => dialog.close();
+      keep.focus();
+      return;
+    }
+    dialog.close();
+  }
+  cancel.onclick = close;
+  dialog.addEventListener("cancel", event => { event.preventDefault(); close(); });
+  dialog.addEventListener("close", () => { dialog.remove(); if (trigger.isConnected) trigger.focus(); });
+  form.onsubmit = async event => {
+    event.preventDefault();
+    if (saving) return;
+    errors.replaceChildren();
+    try {
+      const body = {};
+      for (const [name,,type = "text"] of fields) {
+        const input = form.elements[name];
+        body[name] = type === "checkbox" ? input.checked : input.value === "" ? null : type === "money" ? pence(input.value) : ["number", "integer"].includes(type) ? Number(input.value) : input.value;
+      }
+      // A changed cost/quantity derives a fresh unit price unless explicitly corrected.
+      if (kind === "fuel" && (body.litres !== record.litres || body.total_cost_pence !== record.total_cost_pence)
+          && body.price_per_litre_pence === record.price_per_litre_pence) body.price_per_litre_pence = null;
+      saving = true;
+      save.disabled = true;
+      cancel.disabled = true;
+      errors.textContent = "Saving…";
+      await api(`/${kind === "fuel" ? "fuel" : "expenses"}/${encodeURIComponent(record.id)}`, "PUT", body);
+    } catch (error) {
+      errors.textContent = error.message || "Save could not be confirmed. Refresh before trying again.";
+      for (const [path, message] of Object.entries(error.fields || {})) {
+        const name = path.replace(/^body\./, "");
+        const input = form.elements.namedItem(name);
+        if (input) {
+          input.setAttribute("aria-invalid", "true");
+          const link = node("a", `${name}: ${message}`, node("p", null, errors));
+          link.href = "#" + input.id;
+          link.onclick = e => { e.preventDefault(); input.focus(); };
+        }
+      }
+      errors.focus();
+      saving = false;
+      save.disabled = false;
+      cancel.disabled = false;
+      return;
+    }
+    dialog.close();
+    try {
+      resetHistory();
+      await load(vehicle.id, true);
+      const replacement = [...document.querySelectorAll("[data-edit-id]")].find(b => b.dataset.editId === record.id);
+      if (replacement) replacement.focus();
+      else { $(kind + "-list").tabIndex = -1; $(kind + "-list").focus(); }
+      $("status").textContent = `${kind === "fuel" ? "Fuel" : "Expense"} updated.${replacement ? "" : " Record is outside this view."}`;
+    } catch (_) { $("status").textContent = "Saved. Could not refresh totals; refresh to see current values."; }
+  };
+  dialog.showModal();
+  form.querySelector("input,select").focus();
+}
 function deleteButton(path, description) {
   const b = node("button", "Delete");
   b.className = "danger";
@@ -278,35 +404,125 @@ async function confirmDelete(path, description) {
     { once: true },
   );
 }
+// Charts consume the same unmodified summary rows as the monthly table.
+function monthlyChart(parent, rows, key, title, scope, format) {
+  const figure = node("figure", null, parent);
+  figure.className = "monthly-chart";
+  node("figcaption", `${title} · ${scope}`, figure);
+  const available = rows.filter((r) => r[key] != null);
+  node("p", rows.length
+    ? `${available.length} of ${rows.length} periods have data. Bars start at zero. Exact values follow in the monthly table.`
+    : "No monthly data for this scope.", figure);
+  const link = node("a", "View monthly values", figure);
+  link.href = "#monthly-values";
+  if (!rows.length) return;
+  const max = Math.max(0, ...available.map((r) => r[key]));
+  const plot = node("div", null, figure);
+  // The semantic table and figure summary provide the accessible equivalent.
+  plot.setAttribute("aria-hidden", "true");
+  const scale = node("div", null, plot);
+  scale.className = "chart-scale";
+  node("span", format(0), scale);
+  node("span", format(max), scale);
+  rows.forEach((r) => {
+    const row = node("div", null, plot);
+    row.className = "chart-row";
+    node("span", r.period, row);
+    const track = node("div", null, row);
+    track.className = "chart-track";
+    if (r[key] != null) {
+      const bar = node("div", null, track);
+      bar.className = "chart-bar";
+      bar.style.width = `${max ? r[key] / max * 100 : 0}%`;
+    }
+    node("span", r[key] == null ? "No reading/data" : format(r[key]), row);
+  });
+}
 function renderSummary(s) {
   $("metrics").replaceChildren();
   const o = s.overall;
+  const reasons = {
+    no_driven_distance: "Add an odometer reading above the initial mileage.",
+    missing_purchase_price:
+      "Add the vehicle purchase price to calculate ownership cost.",
+    no_fuel_history:
+      "No fuel history. Record a full fill, then a later full fill at higher mileage.",
+    no_closed_segment:
+      "Record a later full fill at higher mileage to close a segment.",
+    invalid_full_interval:
+      "Full fills have no valid positive-distance interval. Check readings and record a later full fill at higher mileage.",
+  };
+  const cost = (value, codes) =>
+    value == null
+      ? `Not available — ${(codes || []).map((code) => reasons[code]).join(" ")}`
+      : number(value, " p");
   [
     ["Total spending", money(o.total_spend_pence)],
     ["Fuel", money(o.fuel_spend_pence)],
     ["Other expenses", money(o.non_fuel_spend_pence)],
     ["Distance", number(o.miles_driven, " miles")],
-    ["Running cost / mile", number(o.running_cost_per_mile_pence, " p")],
-    ["Ownership cost / mile", number(o.ownership_cost_per_mile_pence, " p")],
+    [
+      "Running cost / mile",
+      cost(o.running_cost_per_mile_pence, o.running_unavailable_reasons),
+    ],
+    [
+      "Ownership cost / mile",
+      cost(o.ownership_cost_per_mile_pence, o.ownership_unavailable_reasons),
+    ],
     [
       "Average UK MPG",
       s.mpg
         ? number(s.mpg.average_mpg)
         : $("vehicle").value
-          ? "Unavailable — needs two full fills"
-          : "Unavailable — select a vehicle",
+          ? `Not available — ${reasons[s.mpg_context?.reason]}`
+          : "Not available — Select a vehicle to view UK MPG.",
     ],
   ].forEach(([title, value]) => {
     const card = node("div", title, $("metrics"));
     node("strong", value, card);
   });
+  if (s.mpg_context) {
+    const details = node("details", null, $("metrics"));
+    node("summary", "How UK MPG was calculated", details);
+    node(
+      "p",
+      "A full fill establishes the baseline; its fuel is excluded. Partial fills after it and the closing full fill are included. A later full fill at higher mileage closes a segment. One imperial gallon = 4.54609 litres. MPG = miles / imperial gallons.",
+      details,
+    );
+    node("p", s.mpg_context.aggregation, details);
+    const segments = s.mpg_context.segments;
+    if (segments.length) {
+      node(
+        "p",
+        `Average interval: ${segments[0].start_date} to ${segments[segments.length - 1].date}; ${segments.length} closed segments.`,
+        details,
+      );
+    }
+    for (const segment of segments) {
+      node(
+        "p",
+        `${segment.start_date} (${segment.start_odometer_miles} miles) to ${segment.date} (${segment.end_odometer_miles} miles): ${segment.miles} miles; ${segment.litres} litres; ${number(segment.imperial_gallons)} imperial gallons; ${number(segment.uk_mpg)} UK MPG.`,
+        details,
+      );
+    }
+  }
   const root = $("summaries");
   root.replaceChildren();
+  const scope = `${$("context").textContent} · ${$("year").value} · ${$("inactive").checked ? "including sold and archived" : "active vehicles only"}`;
+  const charts = node("div", null, root);
+  charts.className = "monthly-charts";
+  monthlyChart(charts, s.monthly, "total_spend_pence", "Monthly spending (GBP)", scope, money);
+  monthlyChart(charts, s.monthly, "miles_driven", "Monthly mileage (miles)", scope, (v) => number(v, " miles"));
   for (const [key, title] of [
     ["monthly", `Monthly · ${$("year").value}`],
     ["annual", "Annual · all years"],
   ]) {
     const col = node("div", null, root);
+    if (key === "monthly") {
+      col.id = "monthly-values";
+      col.tabIndex = -1;
+      node("p", `Monthly values · ${scope}. Scroll for more columns if needed.`, col);
+    }
     table(
       col,
       title,
@@ -314,7 +530,7 @@ function renderSummary(s) {
       s[key].map((r) => [
         r.period,
         money(r.total_spend_pence),
-        number(r.miles_driven),
+        r.miles_driven == null ? "No reading/data" : number(r.miles_driven),
       ]),
     );
   }
@@ -512,7 +728,7 @@ async function loadHistory(kind, trigger) {
                 r.description || "—",
                 money(r.amount_pence),
               ]),
-          deleteButton(
+          recordActions(kind, r, v,
             `/${endpoint}/${encodeURIComponent(r.id)}`,
             `${v.registration} ${kind} on ${r.date}`,
           ),
@@ -536,7 +752,7 @@ async function loadHistory(kind, trigger) {
     }
   }
 }
-async function load(preferred = $("vehicle").value) {
+async function load(preferred = $("vehicle").value, propagate = false) {
   const token = ++generation;
   clearError();
   $("status").textContent = "Loading…";
@@ -548,9 +764,24 @@ async function load(preferred = $("vehicle").value) {
   $("add-reminder").disabled = true;
   try {
     const include = $("inactive").checked;
-    const list = await api(`/vehicles?include_inactive=${include}`);
+    // Read the complete garage to distinguish inactive history from no vehicles.
+    const all = await api("/vehicles?include_inactive=true");
+    const list = include ? all : all.filter((v) => v.status === "ACTIVE");
     if (token !== generation) return;
+    if (initialContext) {
+      const active = all.filter((v) => v.status === "ACTIVE");
+      if (active.length === 1) preferred = active[0].id;
+      initialContext = false;
+    }
+    const unavailable = preferred && !list.some((v) => v.id === preferred);
     vehicles = list;
+    $("creation").hidden = false;
+    $("creation-heading").textContent = all.length ? "Vehicles" : "Add your first vehicle";
+    $("add-vehicle").hidden = !all.length;
+    if (!$("vehicle-dialog").open) {
+      const target = all.length ? $("vehicle-dialog") : $("creation-inline");
+      target.append($("vehicle-help"), $("vehicle-form"));
+    }
     const select = $("vehicle");
     select.replaceChildren();
     const fleet = node(
@@ -588,7 +819,9 @@ async function load(preferred = $("vehicle").value) {
           .join(" · ")
       : vehicles.length
         ? "Select a vehicle for its records."
-        : "Your garage is empty. Add your first vehicle below.";
+        : all.length
+          ? "No active vehicles. Include sold and archived vehicles to view history, or add a vehicle."
+          : "Your garage is empty. Add your first vehicle below.";
     const query = new URLSearchParams({
       include_inactive: String(include),
       year: $("year").value,
@@ -614,16 +847,29 @@ async function load(preferred = $("vehicle").value) {
           "Could not load current history. Use Refresh to retry.",
         );
     }
-    $("status").textContent = "Up to date.";
+    $("status").textContent = unavailable
+      ? "Selected vehicle is no longer available in this scope. Showing fleet. Up to date."
+      : "Up to date.";
   } catch (e) {
     if (token === generation) {
       showError(e);
       $("status").textContent =
         "Could not load current data. Use Refresh to try again.";
-      if (busy) throw e;
+      if (busy || propagate) throw e;
     }
   }
 }
+$("vehicle-errors").setAttribute("role", "alert");
+$("vehicle-errors").tabIndex = -1;
+$("add-vehicle").onclick = () => {
+  clearError();
+  $("vehicle-dialog").showModal();
+  $("vehicle-form-registration").focus();
+};
+$("cancel-vehicle").onclick = () => $("vehicle-dialog").close("cancel");
+$("vehicle-dialog").addEventListener("close", () => {
+  if ($("vehicle-dialog").returnValue !== "saved") $("add-vehicle").focus();
+});
 $("vehicle").onchange = () => {
   resetHistory();
   load();

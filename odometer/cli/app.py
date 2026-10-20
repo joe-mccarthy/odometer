@@ -10,6 +10,7 @@ from odometer.cli import (
     vehicle_commands,
 )
 from odometer.cli.helpers import console
+from odometer.cli.import_commands import import_json
 from odometer.cli.portability_commands import backup, export_app
 from odometer.cli.summary_commands import calc_app, summary_app
 from odometer.cli.web_commands import web
@@ -51,3 +52,4 @@ app.command("backup")(backup)
 app.command("web")(web)
 
 app.add_typer(reminder_commands.app, name="reminder")
+app.command("import")(import_json)

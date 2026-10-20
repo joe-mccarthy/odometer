@@ -50,7 +50,9 @@ class MPGSegment:
     miles: int
     litres: float
     uk_mpg: float
+    start_date: date
     date: date
+    imperial_gallons: float
 
 
 @dataclass(frozen=True)
@@ -209,6 +211,8 @@ class CalculationService:
                         litres=litres_since_start,
                         uk_mpg=uk_mpg,
                         date=fuel_log.date,
+                        start_date=start_full.date,
+                        imperial_gallons=litres_since_start / IMPERIAL_GALLON_LITRES,
                     )
                 )
             start_full = fuel_log
@@ -281,6 +285,24 @@ class CalculationService:
         vehicle = self.vehicle_service.get_vehicle(vehicle_identifier)
         fuel_logs = self.fuel_repository.list(vehicle_id=vehicle.id, limit=None, ascending=True)
         return self.mpg_stats_from_logs(fuel_logs)
+
+    def mpg_context(self, vehicle_identifier: str) -> dict:
+        """Expose the same full-to-full inputs used by MPG statistics."""
+        vehicle = self.vehicle_service.get_vehicle(vehicle_identifier)
+        logs = self.fuel_repository.list(vehicle_id=vehicle.id, limit=None, ascending=True)
+        segments = self.mpg_segments(logs)
+        reason = None
+        if not logs:
+            reason = "no_fuel_history"
+        elif not segments:
+            full = [log for log in logs if log.is_full_tank]
+            reason = "invalid_full_interval" if len(full) >= 2 else "no_closed_segment"
+        return {
+            "reason": reason,
+            "segments": segments,
+            "litres_per_imperial_gallon": IMPERIAL_GALLON_LITRES,
+            "aggregation": "Arithmetic mean of the closed segment MPG values.",
+        }
 
     def category_breakdown_for_scope(
         self,

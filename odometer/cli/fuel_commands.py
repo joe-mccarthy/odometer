@@ -130,3 +130,38 @@ def delete_fuel(
         handle_expected_error(exc)
 
     console.print(f"Deleted fuel log {fuel_log_id}.")
+
+
+@app.command("edit")
+def edit_fuel(
+    record_id: Annotated[str, typer.Argument(help="Record id.")],
+    amount: Annotated[str | None, typer.Option("--amount")] = None,
+    date_value: Annotated[str | None, typer.Option("--date")] = None,
+    mileage: Annotated[int | None, typer.Option("--mileage")] = None,
+    litres: Annotated[float | None, typer.Option("--litres")] = None,
+    full: Annotated[bool | None, typer.Option("--full/--partial")] = None,
+    station: Annotated[str | None, typer.Option("--station")] = None,
+    notes: Annotated[str | None, typer.Option("--notes")] = None,
+) -> None:
+    """Correct supplied fields while retaining record identity."""
+    try:
+        changes: dict[str, object] = {}
+        if amount is not None:
+            changes["total_cost_pence"] = parse_money_to_pence(amount)
+        if date_value is not None:
+            changes["date_"] = parse_date(date_value)
+        if mileage is not None:
+            changes["odometer_miles"] = mileage
+        if litres is not None:
+            changes["litres"] = litres
+        if full is not None:
+            changes["is_full_tank"] = full
+        if station is not None:
+            changes["station"] = station or None
+        if notes is not None:
+            changes["notes"] = notes or None
+        with cli_session() as session:
+            FuelService(session).update_fuel_log(record_id, **changes)
+    except (OdometerError, MoneyParseError, ValueError) as exc:
+        handle_expected_error(exc)
+    console.print("Record updated.")

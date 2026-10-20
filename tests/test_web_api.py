@@ -116,7 +116,15 @@ def test_fuel_expense_summary_and_deletion(client):
         expense_path, json={"date": "2026-01-02", "category": "FUEL", "amount_pence": 99999}
     )
     summary = client.get(f"/api/summary?vehicle_id={identifier}&year=2026").json()
-    assert set(summary) == {"overall", "monthly", "annual", "categories", "rolling", "mpg"}
+    assert set(summary) == {
+        "overall",
+        "monthly",
+        "annual",
+        "categories",
+        "rolling",
+        "mpg",
+        "mpg_context",
+    }
     assert summary["overall"]["total_spend_pence"] == 23501
     assert summary["mpg"]["average_mpg"] == pytest.approx(300 / (65 / 4.54609))
     assert summary["mpg"]["segment_count"] == 1
@@ -345,3 +353,156 @@ def test_service_validation_scope(client, monkeypatch):
     response = client.post("/api/vehicles", json={"registration": "AB12 CDE", "initial_mileage": 0})
     assert response.status_code == 422
     assert response.json()["error"]["message"] == "Expected service validation"
+
+
+def test_record_correction_http(client):
+    identifier = vehicle(client)["id"]
+    first = fuel(client, identifier, 100).json()
+    last = fuel(client, identifier, 300, date="2026-01-03").json()
+    editable = {
+        k: last[k]
+        for k in (
+            "date",
+            "odometer_miles",
+            "litres",
+            "total_cost_pence",
+            "station",
+            "notes",
+            "is_full_tank",
+            "price_per_litre_pence",
+        )
+    }
+    editable.update(total_cost_pence=1234, price_per_litre_pence=None, is_full_tank=False)
+    response = client.put(f"/api/fuel/{last['id']}", json=editable)
+    assert response.status_code == 200, response.text
+    assert response.json()["id"] == last["id"]
+    assert response.json()["vehicle_id"] == identifier
+    assert response.json()["total_cost_pence"] == 1234
+    summary = client.get(f"/api/summary?vehicle_id={identifier}").json()
+    assert summary["overall"]["fuel_spend_pence"] == 5734
+    assert summary["mpg"] is None
+    editable["odometer_miles"] = 99
+    assert client.put(f"/api/fuel/{last['id']}", json=editable).status_code == 422
+    assert client.get(f"/api/vehicles/{identifier}/fuel").json()[0]["odometer_miles"] == 300
+    editable["vehicle_id"] = identifier
+    assert client.put(f"/api/fuel/{first['id']}", json=editable).status_code == 422
+    expense = client.post(
+        f"/api/vehicles/{identifier}/expenses",
+        json={
+            "date": "2026-01-01",
+            "category": "SERVICE",
+            "amount_pence": 100,
+        },
+    ).json()
+    response = client.put(
+        f"/api/expenses/{expense['id']}",
+        json={
+            "date": "2026-01-02",
+            "category": "MOT",
+            "amount_pence": 1001,
+            "odometer_miles": None,
+            "notes": None,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["id"] == expense["id"]
+    assert response.json()["amount_pence"] == 1001
+    assert (
+        client.put(
+            "/api/expenses/missing",
+            json={
+                "date": "2026-01-02",
+                "category": "MOT",
+                "amount_pence": 1001,
+            },
+        ).status_code
+        == 404
+    )
+
+
+def test_correction_boundary_protections(client):
+    assert (
+        client.put(
+            "/api/fuel/missing",
+            content="{}",
+            headers={
+                "Content-Type": "text/plain",
+            },
+        ).status_code
+        == 415
+    )
+    assert (
+        client.put(
+            "/api/expenses/missing",
+            json={},
+            headers={
+                "Origin": "https://attacker.invalid",
+            },
+        ).status_code
+        == 403
+    )
+    assert (
+        client.put(
+            "/api/fuel/missing",
+            json={},
+            headers={
+                "X-Odometer-Request": "0",
+            },
+        ).status_code
+        == 403
+    )
+
+
+def test_metric_reasons_and_full_interval(client):
+    identifier = vehicle(client)["id"]
+    path = f"/api/summary?vehicle_id={identifier}"
+    empty = client.get(path).json()
+    assert empty["mpg_context"]["reason"] == "no_fuel_history"
+    assert empty["overall"]["running_unavailable_reasons"] == ["no_driven_distance"]
+    assert empty["overall"]["ownership_unavailable_reasons"] == [
+        "missing_purchase_price",
+        "no_driven_distance",
+    ]
+    fuel(client, identifier, 100)
+    assert client.get(path).json()["mpg_context"]["reason"] == "no_closed_segment"
+    fuel(client, identifier, 100)
+    assert client.get(path).json()["mpg_context"]["reason"] == "invalid_full_interval"
+    fuel(client, identifier, 200, is_full_tank=False, litres=15)
+    fuel(client, identifier, 400, litres=50)
+    result = client.get(path).json()
+    segment = result["mpg_context"]["segments"][0]
+    assert segment["start_odometer_miles"] == 100
+    assert segment["end_odometer_miles"] == 400
+    assert segment["miles"] == 300
+    assert segment["litres"] == 65
+    assert segment["imperial_gallons"] == pytest.approx(65 / 4.54609)
+    assert segment["uk_mpg"] == result["mpg"]["average_mpg"]
+    assert segment["start_date"] == segment["date"]
+    assert result["mpg_context"]["reason"] is None
+
+
+def test_monthly_charts_use_complete_history(client):
+    """Monthly summaries must not inherit browser record-page limits."""
+    from datetime import date
+
+    from odometer.db.session import get_session
+    from odometer.models.enums import ExpenseCategory
+    from odometer.models.expense import Expense
+
+    identifier = vehicle(client)["id"]
+    with get_session() as session:
+        session.add_all(
+            Expense(
+                vehicle_id=identifier,
+                date=date(2026, 1, 1),
+                category=ExpenseCategory.SERVICE,
+                amount_pence=101,
+            )
+            for _ in range(1001)
+        )
+        session.commit()
+    summary = client.get(f"/api/summary?vehicle_id={identifier}&year=2026").json()
+    assert summary["monthly"][0]["total_spend_pence"] == 101101
+    assert summary["monthly"][0]["miles_driven"] is None
+    assert summary["monthly"][1]["total_spend_pence"] == 0
+    assert summary["monthly"][1]["miles_driven"] is None

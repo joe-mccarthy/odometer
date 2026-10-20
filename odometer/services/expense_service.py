@@ -1,13 +1,15 @@
 """Expense service."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 
+from pydantic import ValidationError
 from sqlmodel import Session
 
 from odometer.models.enums import ExpenseCategory
 from odometer.models.expense import Expense
 from odometer.repositories.expense_repository import ExpenseRepository
 from odometer.services.exceptions import ExpenseNotFoundError, InvalidExpenseError
+from odometer.services.history_validation import validate_expense
 from odometer.services.vehicle_service import VehicleService
 
 
@@ -52,6 +54,37 @@ class ExpenseService:
         )
         return self.repository.add(expense)
 
+    def update_expense(self, expense_id: str, **changes: object) -> Expense:
+        """Validate a detached correction and preserve identity and vehicle."""
+        current = self.repository.get_by_id(expense_id)
+        if current is None:
+            raise ExpenseNotFoundError(f"Expense not found: {expense_id}.")
+        allowed = {
+            "date_",
+            "category",
+            "amount_pence",
+            "odometer_miles",
+            "description",
+            "vendor",
+            "notes",
+        }
+        if not changes or changes.keys() - allowed:
+            raise InvalidExpenseError("Supply editable expense fields only.")
+        values = current.model_dump()
+        values.update({"date" if k == "date_" else k: v for k, v in changes.items()})
+        values["category"] = self._parse_category(values["category"])
+        try:
+            candidate = Expense.model_validate(values, strict=True)
+        except ValidationError as exc:
+            raise InvalidExpenseError(str(exc)) from exc
+        vehicle = self.vehicle_service.get_vehicle(current.vehicle_id)
+        validate_expense(vehicle, candidate)
+        for key in allowed - {"date_"}:
+            setattr(current, key, getattr(candidate, key))
+        current.date = candidate.date
+        current.updated_at = datetime.now(UTC)
+        return self.repository.add(current)
+
     def list_expenses(
         self,
         *,
@@ -87,10 +120,12 @@ class ExpenseService:
         return expense
 
     @staticmethod
-    def _parse_category(category: ExpenseCategory | str) -> ExpenseCategory:
+    def _parse_category(category: object) -> ExpenseCategory:
         """Convert enum or user-entered category text into `ExpenseCategory`."""
         if isinstance(category, ExpenseCategory):
             return category
+        if not isinstance(category, str) or not category.strip():
+            raise InvalidExpenseError("Expense category is required; choose a valid category.")
         try:
             return ExpenseCategory.from_input(category)
         except ValueError as exc:

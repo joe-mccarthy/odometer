@@ -33,8 +33,6 @@ NODE_PATH. This traverses 1,205 records per kind, checks bounded responses, tied
 dates, independent filters, invalid ranges, context resets, keyboard controls,
 320px layout, axe and local-only requests.
 
-Limits: there is no general editing, reactivation, import or HTTP export in v1. Automated Chromium and axe checks supplement, and do not replace, independent acceptance or manual assistive-technology testing.
-Limits: lists show the newest 1,000 records; there is no general editing, reactivation, import, pagination UI in v1. Automated Chromium and axe checks supplement, and do not replace, independent acceptance or manual assistive-technology testing.
 
 Download regression: start the app with disposable data on port 8878 and run
 `NODE_PATH=/tmp/odometer-browser-tests/node_modules node tests/browser/downloads.cjs`.
@@ -53,3 +51,4 @@ focus, 320px reflow, scoped axe and absence of external requests. Python
 staleness boundaries, missing/baseline/provenance, rollback/concurrent retry,
 CLI/API and real downloaded SQLite retention. Manual assistive-technology and
 cross-browser checks remain separate.
+Limits: reactivation and browser JSON import are outside this release. CLI JSON import is supported. Automated Chromium and axe supplement independent acceptance and manual assistive-technology testing.

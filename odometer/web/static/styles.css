@@ -211,3 +211,28 @@ dialog::backdrop {
 #expense-list table {
   min-width: 38rem;
 }
+
+#edit-record { display: grid; gap: 1rem; }
+dialog { max-height: 90dvh; overflow-y: auto; max-width: min(36rem, 90vw); }
+#vehicle-dialog {
+  width: min(48rem, 90vw);
+  max-height: 90dvh;
+  overflow-y: auto;
+}
+#vehicle-errors:not(:empty) {
+  padding: 1rem;
+  background: #fff0ed;
+  border: 2px solid #9b302e;
+}
+
+
+.columns > .monthly-charts { flex: 1 1 100%; }
+.monthly-charts { display: flex; flex-wrap: wrap; gap: 1rem; }
+.monthly-chart { flex: 1 1 360px; min-width: 0; margin: 0; }
+.monthly-chart figcaption { font-weight: bold; }
+.monthly-chart a { display: inline-block; padding: .75rem 0; color: #175b4b; }
+.chart-scale { display: flex; justify-content: space-between; margin-left: 5rem; font-size: .85rem; }
+.chart-row { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: .25rem .5rem; margin: .65rem 0; }
+.chart-row > span:last-child { grid-column: 2; font-size: .9rem; overflow-wrap: anywhere; }
+.chart-track { border-left: 2px solid #475e58; min-height: 1.2rem; }
+.chart-bar { background: #175b4b; height: 1.2rem; }
