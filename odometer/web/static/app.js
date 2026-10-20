@@ -273,6 +273,40 @@ async function confirmDelete(path, description) {
     { once: true },
   );
 }
+// Charts consume the same unmodified summary rows as the monthly table.
+function monthlyChart(parent, rows, key, title, scope, format) {
+  const figure = node("figure", null, parent);
+  figure.className = "monthly-chart";
+  node("figcaption", `${title} · ${scope}`, figure);
+  const available = rows.filter((r) => r[key] != null);
+  node("p", rows.length
+    ? `${available.length} of ${rows.length} periods have data. Bars start at zero. Exact values follow in the monthly table.`
+    : "No monthly data for this scope.", figure);
+  const link = node("a", "View monthly values", figure);
+  link.href = "#monthly-values";
+  if (!rows.length) return;
+  const max = Math.max(0, ...available.map((r) => r[key]));
+  const plot = node("div", null, figure);
+  // The semantic table and figure summary provide the accessible equivalent.
+  plot.setAttribute("aria-hidden", "true");
+  const scale = node("div", null, plot);
+  scale.className = "chart-scale";
+  node("span", format(0), scale);
+  node("span", format(max), scale);
+  rows.forEach((r) => {
+    const row = node("div", null, plot);
+    row.className = "chart-row";
+    node("span", r.period, row);
+    const track = node("div", null, row);
+    track.className = "chart-track";
+    if (r[key] != null) {
+      const bar = node("div", null, track);
+      bar.className = "chart-bar";
+      bar.style.width = `${max ? r[key] / max * 100 : 0}%`;
+    }
+    node("span", r[key] == null ? "No reading/data" : format(r[key]), row);
+  });
+}
 function renderSummary(s) {
   $("metrics").replaceChildren();
   const o = s.overall;
@@ -297,11 +331,21 @@ function renderSummary(s) {
   });
   const root = $("summaries");
   root.replaceChildren();
+  const scope = `${$("context").textContent} · ${$("year").value} · ${$("inactive").checked ? "including sold and archived" : "active vehicles only"}`;
+  const charts = node("div", null, root);
+  charts.className = "monthly-charts";
+  monthlyChart(charts, s.monthly, "total_spend_pence", "Monthly spending (GBP)", scope, money);
+  monthlyChart(charts, s.monthly, "miles_driven", "Monthly mileage (miles)", scope, (v) => number(v, " miles"));
   for (const [key, title] of [
     ["monthly", `Monthly · ${$("year").value}`],
     ["annual", "Annual · all years"],
   ]) {
     const col = node("div", null, root);
+    if (key === "monthly") {
+      col.id = "monthly-values";
+      col.tabIndex = -1;
+      node("p", `Monthly values · ${scope}. Scroll for more columns if needed.`, col);
+    }
     table(
       col,
       title,
@@ -309,7 +353,7 @@ function renderSummary(s) {
       s[key].map((r) => [
         r.period,
         money(r.total_spend_pence),
-        number(r.miles_driven),
+        r.miles_driven == null ? "No reading/data" : number(r.miles_driven),
       ]),
     );
   }

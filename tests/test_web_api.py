@@ -343,3 +343,30 @@ def test_service_validation_scope(client, monkeypatch):
     response = client.post("/api/vehicles", json={"registration": "AB12 CDE", "initial_mileage": 0})
     assert response.status_code == 422
     assert response.json()["error"]["message"] == "Expected service validation"
+
+
+def test_monthly_charts_use_complete_history(client):
+    """Monthly summaries must not inherit browser record-page limits."""
+    from datetime import date
+
+    from odometer.db.session import get_session
+    from odometer.models.enums import ExpenseCategory
+    from odometer.models.expense import Expense
+
+    identifier = vehicle(client)["id"]
+    with get_session() as session:
+        session.add_all(
+            Expense(
+                vehicle_id=identifier,
+                date=date(2026, 1, 1),
+                category=ExpenseCategory.SERVICE,
+                amount_pence=101,
+            )
+            for _ in range(1001)
+        )
+        session.commit()
+    summary = client.get(f"/api/summary?vehicle_id={identifier}&year=2026").json()
+    assert summary["monthly"][0]["total_spend_pence"] == 101101
+    assert summary["monthly"][0]["miles_driven"] is None
+    assert summary["monthly"][1]["total_spend_pence"] == 0
+    assert summary["monthly"][1]["miles_driven"] is None
