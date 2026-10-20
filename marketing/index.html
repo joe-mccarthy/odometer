@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Know what your car really costs. Odometer is an open-source, local-first vehicle cost tracker with a CLI and terminal dashboard. No cloud, accounts or subscriptions.">
+  <meta name="theme-color" content="#142c25">
+  <meta property="og:title" content="Odometer — Every mile accounted for.">
+  <meta property="og:description" content="Track fuel, servicing and the real cost of car ownership. Open source. Local first. Yours.">
+  <meta property="og:type" content="website">
+  <title>Odometer — Every mile accounted for.</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script src="script.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="wrap nav"><a class="brand" href="#" aria-label="Odometer home"><span class="mark" aria-hidden="true">o<span>↗</span></span> odometer<span class="brand-dot">.</span></a><nav aria-label="Main navigation"><a href="#features">Why Odometer</a><a href="#start">Get started</a><a class="repo" href="https://github.com/joe-mccarthy/odometer">GitHub <span aria-hidden="true">↗</span></a></nav></header>
+<main id="main">
+<section class="wrap hero">
+  <div class="hero-copy"><p class="eyebrow"><span class="status-dot"></span> OPEN SOURCE. OPEN ROAD.</p><h1>Every mile.<br>Every pound.<br><em>Accounted for.</em></h1><p class="intro">Fuel is only part of the story. See what your car really costs with a local-first tracker that puts you in the driver’s seat.</p><div class="actions"><a class="button primary" href="#start">Start tracking <span aria-hidden="true">↗</span></a><a class="text-link" href="https://github.com/joe-mccarthy/odometer">Explore the code <span aria-hidden="true">→</span></a></div><p class="fine">No accounts. No subscriptions. Your data stays with you.</p></div>
+  <div class="preview"><div class="preview-label"><span>YOUR COSTS, IN FOCUS</span><span>01 / OVERVIEW</span></div><div class="terminal"><div class="terminal-top"><span class="lights" aria-hidden="true">● ● ●</span><span>odometer · terminal dashboard</span><span aria-hidden="true">↗</span></div><div class="terminal-body"><div class="dash-head"><div><span class="mono muted">VEHICLE OVERVIEW</span><h2>The bigger picture.</h2></div><span class="plate">AB12 CDE</span></div><div class="metrics"><div><span>Total running spend</span><strong>£2,184<span>.60</span></strong><small>Fuel + recorded expenses</small></div><div><span>Running cost / mile</span><strong>24<span>p</span></strong><small>9,102 miles recorded</small></div></div><div class="chart-head"><span>WHERE IT GOES</span><span>GBP</span></div><div class="bar-row"><span>Fuel</span><div><i style="--size:100%"></i></div><b>£1,286.40</b></div><div class="bar-row"><span>Insurance</span><div><i style="--size:40%;--bar:#b5c69b"></i></div><b>£520.00</b></div><div class="bar-row"><span>Servicing</span><div><i style="--size:22%;--bar:#819a79"></i></div><b>£284.20</b></div><div class="bar-row"><span>Tax</span><div><i style="--size:8%;--bar:#567b68"></i></div><b>£94.00</b></div><div class="terminal-bottom"><span><span class="status-dot"></span> LOCAL SQLITE DATABASE</span><span>YOUR MACHINE. YOUR DATA.</span></div></div></div><p class="sample">Illustrative data and layout · Explore the Textual TUI in the repository</p><div class="preview-note"><span aria-hidden="true">↳</span> A little clarity for the road ahead.</div></div>
+</section>
+<div class="principles"><div class="wrap"><span>BUILT FOR YOUR OWNERSHIP</span><p>Local first <i>✳</i> Multi-vehicle <i>✳</i> CLI + TUI <i>✳</i> Docker ready</p></div></div>
+<section class="wrap features" id="features"><div class="section-heading"><p class="eyebrow">LESS GUESSWORK. MORE CLARITY.</p><h2>The full cost of<br>going places.</h2><p>From the next fill-up to the annual service, turn everyday records into a clearer view of ownership.</p></div><div class="feature-grid"><article><span class="feature-number">01 / TRACK</span><h3>More than fuel.</h3><p>Record servicing, insurance, tax, tyres, repairs and the other costs that add up. Keep multiple vehicles in one place.</p><span class="feature-glyph" aria-hidden="true">＋</span></article><article><span class="feature-number">02 / UNDERSTAND</span><h3>Make the miles count.</h3><p>See running and ownership cost per mile, UK MPG, category breakdowns and monthly or annual summaries.</p><span class="feature-glyph" aria-hidden="true">↗</span></article><article><span class="feature-number">03 / OWN</span><h3>Keep your keys.</h3><p>Your records live in a local SQLite database. Use the CLI or terminal dashboard, with Docker support when you need it.</p><span class="feature-glyph" aria-hidden="true">⌘</span></article></div></section>
+<section class="start-section" id="start"><div class="wrap start-grid"><div><p class="eyebrow">YOUR NEXT MILE STARTS HERE</p><h2>Pop the bonnet.<br>Get started.</h2><p>Made for people who are comfortable in a terminal. Bring Python 3.12–3.x, Git and Poetry 2.4.x.</p><p class="release-note">Early-stage software · GitHub-only testing release.<br>Odometer is not published to PyPI yet.</p><a class="text-link" href="https://github.com/joe-mccarthy/odometer#run-locally-from-source">Read the setup guide <span aria-hidden="true">↗</span></a></div><div class="code-panel"><div class="code-top"><span>GET UP AND RUNNING</span><button id="copy" type="button">Copy commands</button></div><pre><code id="commands">git clone https://github.com/joe-mccarthy/odometer.git
+cd odometer
+poetry install
+poetry run odometer init
+poetry run odometer tui</code></pre><p>Then add your vehicle and start logging. <a href="https://github.com/joe-mccarthy/odometer#basic-usage">See basic usage →</a></p><span id="copy-status" class="sr-only" role="status"></span></div></div></section>
+<section class="wrap contribute"><p class="eyebrow">BUILT IN THE OPEN</p><h2>A better journey,<br>built together.</h2><p>Try it. Share feedback. Help shape what comes next.<br>Every bug report and contribution moves Odometer forward.</p><a class="button primary" href="https://github.com/joe-mccarthy/odometer">Find us on GitHub <span aria-hidden="true">↗</span></a><a class="text-link" href="https://github.com/joe-mccarthy/odometer/issues">Report an issue →</a></section>
+</main>
+<footer class="wrap"><a class="brand" href="#">odometer.</a><span>Every mile accounted for.</span><div><a href="https://github.com/joe-mccarthy/odometer/blob/main/LICENSE">GPL-3.0-only</a><a href="https://github.com/joe-mccarthy/odometer">GitHub ↗</a></div></footer>
+</body>
+</html>
