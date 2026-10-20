@@ -4,7 +4,9 @@ import typer
 
 from odometer.cli import config_commands, expense_commands, fuel_commands, vehicle_commands
 from odometer.cli.helpers import console
+from odometer.cli.portability_commands import backup, export_app
 from odometer.cli.summary_commands import calc_app, summary_app
+from odometer.cli.web_commands import web
 from odometer.db.bootstrap import initialise_database
 
 app = typer.Typer(
@@ -36,3 +38,8 @@ app.add_typer(expense_commands.app, name="expense")
 app.add_typer(fuel_commands.app, name="fuel")
 app.add_typer(summary_app, name="summary")
 app.add_typer(calc_app, name="calc")
+
+app.add_typer(export_app, name="export")
+app.command("backup")(backup)
+
+app.command("web")(web)
