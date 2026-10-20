@@ -27,8 +27,11 @@ Criteria: 5.1–5.4 in the product acceptance matrix.
   the existing shared parser and integer-pence storage. Empty optional strings
   clear text; `--clear-mileage` clears optional expense mileage. Empty or non-text
   categories raise an actionable domain validation error before any write.
+- Corrections reject non-finite derived unit prices before persistence.
 - TUI: `e` opens the selected record prefilled, with vehicle fixed. Save uses
   shared services; invalid drafts stay open, Cancel/Escape writes nothing.
+  Blank dates in edits are required-field errors; additions retain today as the
+  default. If a selected row disappears before opening, refresh and report it.
 - Browser: Edit precedes Delete, with a named native dialog, GBP values, retained
   errors, in-dialog dirty-discard confirmation, duplicate-save guard, refreshed
   records/metrics and focus restoration. Confirmed-save refresh failure gets a

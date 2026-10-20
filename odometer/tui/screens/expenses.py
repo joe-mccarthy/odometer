@@ -132,8 +132,15 @@ class ExpensesScreen(Screen[None]):
         app = cast(OdometerTUI, self.app)
         rows = app.get_expenses()
         record = next(
-            row.expense for row in rows if row.expense.id == self.expense_ids[table.cursor_row]
+            (row.expense for row in rows if row.expense.id == self.expense_ids[table.cursor_row]),
+            None,
         )
+        if record is None:
+            self.refresh_table()
+            self.query_one("#message", Static).update(
+                "Record is no longer available; list refreshed."
+            )
+            return
         self.app.push_screen(AddExpenseModal(record), callback=self._after_add)
 
     def action_delete_selected(self) -> None:

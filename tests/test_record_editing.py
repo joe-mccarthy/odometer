@@ -70,6 +70,7 @@ def test_edit_identity_partial_money_and_cli(session):
         {"date_": date(2026, 1, 4)},
         {"litres": 61},
         {"litres": float("nan")},
+        {"litres": 1e-320},
         {"total_cost_pence": 0},
         {"total_cost_pence": 1.5},
         {"vehicle_id": "other"},
@@ -172,7 +173,14 @@ def test_tui_prefill_rejection_save_cancel(session):
             await pilot.pause()
             assert app.screen.query_one("#vehicle", Input).disabled
             assert app.screen.query_one("#amount", Input).value == "30.00"
+            app.screen.query_one("#date", Input).value = ""
+            await pilot.click("#save")
+            await pilot.pause()
+            assert isinstance(app.screen, AddFuelModal)
+            assert "Date is required" in str(app.screen.query_one("#message", Static).render())
+            app.screen.query_one("#date", Input).value = "2026-01-02"
             app.screen.query_one("#mileage", Input).value = "999"
+            await pilot.pause(0.3)
             await pilot.click("#save")
             await pilot.pause()
             assert isinstance(app.screen, AddFuelModal)
@@ -189,6 +197,11 @@ def test_tui_prefill_rejection_save_cancel(session):
             app.push_screen(AddExpenseModal(expense))
             await pilot.pause()
             assert app.screen.query_one("#vendor", Input).value == "Garage"
+            app.screen.query_one("#date", Input).value = ""
+            await pilot.click("#save")
+            await pilot.pause()
+            assert isinstance(app.screen, AddExpenseModal)
+            assert "Date is required" in str(app.screen.query_one("#message", Static).render())
             app.screen.query_one("#amount", Input).value = "99.99"
             await pilot.press("escape")
             await pilot.pause()
@@ -293,3 +306,42 @@ def test_invalid_expense_category_is_actionable_and_atomic(session, category):
     session.expire_all()
     session.refresh(row)
     assert row.model_dump() == before
+
+
+@pytest.mark.parametrize("kind", ["fuel", "expense"])
+def test_tui_edit_disappeared_record_refreshes(session, kind):
+    import asyncio
+
+    from textual.widgets import Static
+
+    from odometer.tui.app import OdometerTUI
+    from odometer.tui.screens.expenses import ExpensesScreen
+    from odometer.tui.screens.fuel import FuelScreen
+
+    vehicle, _, rows = history(session)
+    expense = ExpenseService(session).add_expense(
+        vehicle_identifier=vehicle.id,
+        category="SERVICE",
+        amount_pence=100,
+        date_=date(2026, 1, 1),
+    )
+    identifier = rows[0].id if kind == "fuel" else expense.id
+
+    async def exercise():
+        app = OdometerTUI()
+        async with app.run_test(size=(100, 45)) as pilot:
+            screen = FuelScreen() if kind == "fuel" else ExpensesScreen()
+            app.push_screen(screen)
+            await pilot.pause()
+            if kind == "fuel":
+                screen.fuel_log_ids = [identifier]
+                app.delete_fuel_log(identifier)
+            else:
+                screen.expense_ids = [identifier]
+                app.delete_expense(identifier)
+            screen.action_edit_selected()
+            await pilot.pause()
+            assert app.screen is screen
+            assert "no longer available" in str(screen.query_one("#message", Static).render())
+
+    asyncio.run(exercise())

@@ -437,13 +437,16 @@ class OdometerTUI(App[None]):
                 if values.get("record_id")
                 else {"vehicle_identifier": values["vehicle"]}
             )
+            parsed_date = parse_optional_date(values.get("date") or None)
+            if values.get("record_id") and parsed_date is None:
+                raise ValueError("Date is required when editing a record.")
             operation(
                 **identity,
                 notes=values.get("notes") or None,
                 vendor=values.get("vendor") or None,
                 category=values["category"],
                 amount_pence=parse_money_to_pence(values["amount"]),
-                date_=parse_optional_date(values.get("date") or None) or date.today(),
+                date_=parsed_date or date.today(),
                 odometer_miles=int(values["mileage"]) if values.get("mileage") else None,
                 description=values.get("description") or None,
             )
@@ -479,13 +482,16 @@ class OdometerTUI(App[None]):
                 if values.get("record_id")
                 else {"vehicle_identifier": values["vehicle"]}
             )
+            parsed_date = parse_optional_date(values.get("date") or None)
+            if values.get("record_id") and parsed_date is None:
+                raise ValueError("Date is required when editing a record.")
             operation(
                 **identity,
                 notes=values.get("notes") or None,
                 litres=float(values["litres"]),
                 total_cost_pence=parse_money_to_pence(values["amount"]),
                 odometer_miles=int(values["mileage"]),
-                date_=parse_optional_date(values.get("date") or None) or date.today(),
+                date_=parsed_date or date.today(),
                 station=values.get("station") or None,
                 is_full_tank=values.get("fill", "full").lower() != "partial",
             )

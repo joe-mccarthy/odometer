@@ -115,8 +115,19 @@ class FuelScreen(Screen[None]):
         app = cast(OdometerTUI, self.app)
         rows = app.get_fuel_logs()
         record = next(
-            row.fuel_log for row in rows if row.fuel_log.id == self.fuel_log_ids[table.cursor_row]
+            (
+                row.fuel_log
+                for row in rows
+                if row.fuel_log.id == self.fuel_log_ids[table.cursor_row]
+            ),
+            None,
         )
+        if record is None:
+            self.refresh_table()
+            self.query_one("#message", Static).update(
+                "Record is no longer available; list refreshed."
+            )
+            return
         self.app.push_screen(AddFuelModal(record), callback=self._after_add)
 
     def action_delete_selected(self) -> None:

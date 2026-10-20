@@ -1,5 +1,6 @@
 """Fuel log service."""
 
+import math
 from datetime import UTC, date, datetime
 
 from pydantic import ValidationError
@@ -117,6 +118,8 @@ class FuelService:
         )
         if candidate.price_per_litre_pence is None:
             candidate.price_per_litre_pence = candidate.total_cost_pence / candidate.litres
+            if not math.isfinite(candidate.price_per_litre_pence):
+                raise InvalidFuelLogError("Fuel price must be finite and greater than zero.")
         for key in allowed - {"date_"}:
             setattr(current, key, getattr(candidate, key))
         current.date = candidate.date
