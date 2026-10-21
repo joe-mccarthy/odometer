@@ -1,6 +1,7 @@
 /* Run with NODE_PATH pointing to a temporary Playwright install; see smoke.md. */
 const { chromium } = require("playwright");
 const assert = require("node:assert/strict");
+const BASE = process.env.ODOMETER_TEST_URL || "http://127.0.0.1:8876";
 const AxeBuilder = require("@axe-core/playwright").default;
 (async () => {
   const browser = await chromium.launch({ headless: true });
@@ -12,14 +13,13 @@ const AxeBuilder = require("@axe-core/playwright").default;
     external = [];
   page.on("pageerror", (e) => failures.push(e.message));
   page.on("request", (r) => {
-    if (new URL(r.url()).origin !== "http://127.0.0.1:8876")
-      external.push(r.url());
+    if (new URL(r.url()).origin !== BASE) external.push(r.url());
   });
-  await page.goto("http://127.0.0.1:8876");
+  await page.goto(BASE);
   const ready = () =>
     page
       .locator("#status")
-      .filter({ hasText: /Up to date|Saved/ })
+      .filter({ hasText: /Up to date|Saved|Vehicle deleted/ })
       .waitFor();
   await ready();
   await page.keyboard.press("Tab");
@@ -32,10 +32,7 @@ const AxeBuilder = require("@axe-core/playwright").default;
   await page.locator("#vehicle-form button").click();
   await ready();
   assert.match(await page.locator("#context").textContent(), /UI TEST/);
-  assert.match(
-    await page.locator("#metrics").textContent(),
-    /needs two full fills/,
-  );
+  assert.match(await page.locator("#metrics").textContent(), /No fuel history/);
   const fill = async (miles, litres, cost, full) => {
     await page.locator("#fuel-form-date").fill("2026-10-20");
     await page.locator("#fuel-form-odometer_miles").fill(String(miles));
@@ -49,6 +46,27 @@ const AxeBuilder = require("@axe-core/playwright").default;
   await fill(10150, 15, "22.50", false);
   await fill(10300, 30, "45.00", true);
   assert.match(await page.locator("#metrics").textContent(), /30.31/);
+  const disclosure = page.getByText("How UK MPG was calculated", {
+    exact: true,
+  });
+  await disclosure.focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await page.locator("#metrics details").getAttribute("open"), "");
+  assert.match(
+    await page.locator("#metrics details").textContent(),
+    /45 litres/,
+  );
+  assert.match(
+    await page.locator("#metrics details").textContent(),
+    /imperial gallons/,
+  );
+  await page.setViewportSize({ width: 320, height: 844 });
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+    true,
+  );
   assert.match(await page.locator("#metrics").textContent(), /£112.51/);
   await page.locator("#expense-form-date").fill("2026-10-20");
   await page.locator("#expense-form-category").selectOption("SERVICE");
@@ -76,16 +94,16 @@ const AxeBuilder = require("@axe-core/playwright").default;
     true,
   );
   // Cancel and confirm record deletion.
-  await page.locator("#expense-list button").click();
+  await page.locator("#expense-list button.danger").click();
   await page.locator("#confirm button[value=cancel]").click();
   assert.equal(await page.locator("#expense-list tbody tr").count(), 1);
-  await page.locator("#expense-list button").click();
+  await page.locator("#expense-list button.danger").click();
   await Promise.all([
     page.waitForResponse((r) => r.request().method() === "DELETE"),
     page.locator("#confirm button[value=delete]").click(),
   ]);
   await ready();
-  assert.match(await page.locator("#expense-list").textContent(), /No records/);
+  assert.match(await page.locator("#expense-list").textContent(), /No expenses recorded/);
   assert(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

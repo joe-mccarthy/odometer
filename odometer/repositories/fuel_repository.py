@@ -33,6 +33,7 @@ class FuelRepository:
         date_to: date | None = None,
         limit: int | None = 50,
         ascending: bool = False,
+        offset: int = 0,
     ) -> list[FuelLog]:
         """Return fuel logs matching optional filters."""
         statement = select(FuelLog)
@@ -43,16 +44,15 @@ class FuelRepository:
         if date_to is not None:
             statement = statement.where(FuelLog.date <= date_to)
 
+        if offset < 0 or (limit is not None and not 1 <= limit <= 200):
+            raise ValueError("Use offset >= 0 and limit 1..200.")
+        if date_from is not None and date_to is not None and date_from > date_to:
+            raise ValueError("date_from must not follow date_to.")
         if ascending:
-            statement = statement.order_by(
-                col(FuelLog.odometer_miles), col(FuelLog.date), col(FuelLog.created_at)
-            )
+            statement = statement.order_by(col(FuelLog.date), col(FuelLog.id))
         else:
-            statement = statement.order_by(
-                col(FuelLog.date).desc(),
-                col(FuelLog.odometer_miles).desc(),
-                col(FuelLog.created_at).desc(),
-            )
+            statement = statement.order_by(col(FuelLog.date).desc(), col(FuelLog.id).desc())
+        statement = statement.offset(offset)
         if limit is not None:
             statement = statement.limit(limit)
         return list(self.session.exec(statement).all())

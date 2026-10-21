@@ -262,8 +262,12 @@ def test_tui_delete_actions_confirm_and_refresh_tables(session: Session) -> None
             await pilot.pause()
             await pilot.press("delete")
             await pilot.pause()
+            assert "active/completed reminders" in app.screen.message
             app.screen.query_one("#delete", Button).action_press()
             await pilot.pause()
+            assert "active/completed reminders" in str(
+                app.screen.query_one("#message", Static).render()
+            )
             vehicles_table = app.screen.query_one("#vehicles-table", DataTable)
             assert vehicles_table.row_count == 1
             assert vehicles_table.get_row_at(0)[0] == "XY98 ZZZ"

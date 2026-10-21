@@ -87,7 +87,9 @@ charts.
 Contains the loopback-only FastAPI server, API routes and bundled static browser
 assets. Routes call the shared services. Host/origin checks constrain browser
 mutations; this server is intended for local single-user use. `odometer web`
-starts Uvicorn in the foreground. Lists are limited to the newest 1,000 records.
+starts Uvicorn in the foreground. Record lists use SQL LIMIT/OFFSET with date/ID ordering and optional page metadata.
+Browser histories use 50-row pages and independent filters; API limits are 1–200.
+Internal calculations and exports explicitly request complete history (`limit=None`).
 
 `odometer/services/portability_service.py`
 

@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from sqlmodel import Session
 from textual.app import App
@@ -425,6 +425,34 @@ class OdometerTUI(App[None]):
 
         self._with_session(save)
 
+    def save_expense_from_form(self, values: dict[str, str]) -> None:
+        """Add an expense from TUI form values."""
+
+        def save(session: Session) -> None:
+            """Parse form fields and persist a new expense."""
+            service = ExpenseService(session)
+            operation = service.update_expense if values.get("record_id") else service.add_expense
+            identity: dict[str, Any] = (
+                {"expense_id": values["record_id"]}
+                if values.get("record_id")
+                else {"vehicle_identifier": values["vehicle"]}
+            )
+            parsed_date = parse_optional_date(values.get("date") or None)
+            if values.get("record_id") and parsed_date is None:
+                raise ValueError("Date is required when editing a record.")
+            operation(
+                **identity,
+                notes=values.get("notes") or None,
+                vendor=values.get("vendor") or None,
+                category=values["category"],
+                amount_pence=parse_money_to_pence(values["amount"]),
+                date_=parsed_date or date.today(),
+                odometer_miles=int(values["mileage"]) if values.get("mileage") else None,
+                description=values.get("description") or None,
+            )
+
+        self._with_session(save)
+
     def add_fuel_from_form(self, values: dict[str, str]) -> None:
         """Add a fuel log from TUI form values."""
 
@@ -436,6 +464,34 @@ class OdometerTUI(App[None]):
                 total_cost_pence=parse_money_to_pence(values["amount"]),
                 odometer_miles=int(values["mileage"]),
                 date_=parse_optional_date(values.get("date") or None) or date.today(),
+                station=values.get("station") or None,
+                is_full_tank=values.get("fill", "full").lower() != "partial",
+            )
+
+        self._with_session(save)
+
+    def save_fuel_from_form(self, values: dict[str, str]) -> None:
+        """Add a fuel log from TUI form values."""
+
+        def save(session: Session) -> None:
+            """Parse form fields and persist a new fuel log."""
+            service = FuelService(session)
+            operation = service.update_fuel_log if values.get("record_id") else service.add_fuel_log
+            identity: dict[str, Any] = (
+                {"fuel_log_id": values["record_id"]}
+                if values.get("record_id")
+                else {"vehicle_identifier": values["vehicle"]}
+            )
+            parsed_date = parse_optional_date(values.get("date") or None)
+            if values.get("record_id") and parsed_date is None:
+                raise ValueError("Date is required when editing a record.")
+            operation(
+                **identity,
+                notes=values.get("notes") or None,
+                litres=float(values["litres"]),
+                total_cost_pence=parse_money_to_pence(values["amount"]),
+                odometer_miles=int(values["mileage"]),
+                date_=parsed_date or date.today(),
                 station=values.get("station") or None,
                 is_full_tank=values.get("fill", "full").lower() != "partial",
             )

@@ -1,6 +1,7 @@
 """Service-backed HTTP routes for the local browser application."""
 
 import logging
+import tempfile
 from collections.abc import Callable, Iterator
 from dataclasses import asdict, is_dataclass
 from datetime import UTC, date, datetime
@@ -10,7 +11,7 @@ from typing import Any, TypedDict
 from fastapi import Depends, FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.exc import OperationalError
 from sqlmodel import Session
@@ -25,9 +26,19 @@ from odometer.services import exceptions as exc
 from odometer.services.calculation_service import CalculationService
 from odometer.services.expense_service import ExpenseService
 from odometer.services.fuel_service import FuelService
+from odometer.services.portability_service import backup_database, export_data
+from odometer.services.reminder_service import ReminderService
 from odometer.services.summary_service import SummaryService
 from odometer.services.vehicle_service import VehicleService
-from odometer.web.schemas import ExpenseCreate, FuelCreate, VehicleCreate, VehiclePatch
+from odometer.web.schemas import (
+    ExpenseCreate,
+    FuelCreate,
+    FuelUpdate,
+    ReminderComplete,
+    ReminderInput,
+    VehicleCreate,
+    VehiclePatch,
+)
 from odometer.web.security import LocalBoundary, error
 
 logger = logging.getLogger(__name__)
@@ -36,6 +47,7 @@ STATIC = Path(__file__).with_name("static")
 
 class ListFilters(TypedDict, total=False):
     limit: int
+    offset: int
     ascending: bool
     date_from: date
     date_to: date
@@ -53,7 +65,12 @@ def wire(value: Any) -> Any:
     elif is_dataclass(value) and not isinstance(value, type):
         value = asdict(value)
     if isinstance(value, dict):
-        return {key: wire(item) for key, item in value.items()}
+        result = {key: wire(item) for key, item in value.items()}
+        # Preserve numeric API contracts and provide exact monetary display companions.
+        for key in value:
+            if key.endswith("_pence") and type(value[key]) is int:
+                result[key + "_exact"] = str(value[key])
+        return result
     if isinstance(value, (list, tuple)):
         return [wire(item) for item in value]
     if isinstance(value, datetime):
@@ -100,7 +117,8 @@ def integer(value: str, name: str, low: int, high: int) -> int:
 def filters(request: Request) -> ListFilters:
     query = request.query_params
     result: ListFilters = {
-        "limit": integer(query.get("limit", "50"), "limit", 1, 1000),
+        "limit": integer(query.get("limit", "50"), "limit", 1, 200),
+        "offset": integer(query.get("offset", "0"), "offset", 0, 2147483647),
         "ascending": boolean(query.get("ascending", "false"), "ascending"),
     }
     for name in ("date_from", "date_to"):
@@ -116,6 +134,22 @@ def filters(request: Request) -> ListFilters:
     if result.get("date_from", date.min) > result.get("date_to", date.max):
         raise InputError("date_from must not follow date_to")
     return result
+
+
+def history_page(
+    method: Callable[..., Any], request: Request, vehicle_id: str, **extra: Any
+) -> JSONResponse:
+    """Bounded SQL pages; offset stability applies to unchanged history only."""
+    options = filters(request)
+    rows = call(method, vehicle_identifier=vehicle_id, **extra, **options)
+    if not boolean(request.query_params.get("page", "false"), "page"):
+        return resource(rows)
+    offset = options.get("offset", 0)
+    limit = options.get("limit", 50)
+    options["offset"] = offset + limit
+    options["limit"] = 1
+    more = bool(call(method, vehicle_identifier=vehicle_id, **extra, **options))
+    return resource({"items": rows, "offset": offset, "limit": limit, "has_next": more})
 
 
 def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
@@ -153,7 +187,12 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
     async def service_error(request: Request, exception: exc.OdometerError) -> JSONResponse:
         if isinstance(
             exception,
-            (exc.VehicleNotFoundError, exc.ExpenseNotFoundError, exc.FuelLogNotFoundError),
+            (
+                exc.VehicleNotFoundError,
+                exc.ExpenseNotFoundError,
+                exc.FuelLogNotFoundError,
+                exc.ReminderNotFoundError,
+            ),
         ):
             return error(404, "not_found", str(exception))
         if isinstance(exception, exc.DuplicateActiveVehicleError):
@@ -178,6 +217,37 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
         return error(500, "internal_error", "An internal error occurred")
 
     session_dependency = Depends(session)
+
+    @app.get("/api/downloads/{kind}")
+    def download(kind: str, request: Request) -> Response:
+        # No user-controlled path, filename or filter reaches the filesystem.
+        if request.query_params:
+            raise InputError("Downloads do not accept paths or filters")
+        choices = {
+            "json": ("json", "application/json", None),
+            "vehicles": ("csv", "text/csv", "vehicles"),
+            "fuel": ("csv", "text/csv", "fuel"),
+            "expenses": ("csv", "text/csv", "expenses"),
+            "backup": ("sqlite3", "application/vnd.sqlite3", None),
+        }
+        if kind not in choices:
+            raise HTTPException(404)
+        extension, media_type, dataset = choices[kind]
+        filename = f"odometer-{kind}-{datetime.now(UTC):%Y-%m-%d}.{extension}"
+        # Read the completed snapshot before responding so cleanup also happens
+        # on preparation errors and disconnected clients.
+        with tempfile.TemporaryDirectory(prefix="odometer-download-") as directory:
+            destination = Path(directory) / filename
+            if kind == "backup":
+                backup_database(path, destination)
+            else:
+                export_data(path, destination, dataset)
+            content = destination.read_bytes()
+        return Response(
+            content,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @app.get("/api/vehicles")
     def vehicles(include_inactive: str = "false", db: Session = session_dependency) -> JSONResponse:
@@ -217,9 +287,7 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
 
     @app.get("/api/vehicles/{vehicle_id}/fuel")
     def fuel(vehicle_id: str, request: Request, db: Session = session_dependency) -> JSONResponse:
-        return resource(
-            FuelService(db).list_fuel_logs(vehicle_identifier=vehicle_id, **filters(request))
-        )
+        return history_page(FuelService(db).list_fuel_logs, request, vehicle_id)
 
     @app.post("/api/vehicles/{vehicle_id}/fuel", status_code=201)
     def create_fuel(
@@ -232,6 +300,19 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
             status_code=201,
         )
 
+    @app.put("/api/fuel/{fuel_id}")
+    def update_fuel(
+        fuel_id: str, body: FuelUpdate, db: Session = session_dependency
+    ) -> JSONResponse:
+        values = body.model_dump(exclude={"fuel_tank_litres"})
+        # Preserve omitted partial-fill state and unit-price recalculation semantics.
+        if "is_full_tank" not in body.model_fields_set:
+            values.pop("is_full_tank")
+        if "price_per_litre_pence" not in body.model_fields_set:
+            values.pop("price_per_litre_pence")
+        values["date_"] = values.pop("date")
+        return resource(call(FuelService(db).update_fuel_log, fuel_log_id=fuel_id, **values))
+
     @app.delete("/api/fuel/{fuel_id}")
     def delete_fuel(fuel_id: str, db: Session = session_dependency) -> JSONResponse:
         return resource(FuelService(db).delete_fuel_log(fuel_id))
@@ -243,10 +324,8 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
         category: ExpenseCategory | None = None,
         db: Session = session_dependency,
     ) -> JSONResponse:
-        return resource(
-            ExpenseService(db).list_expenses(
-                vehicle_identifier=vehicle_id, category=category, **filters(request)
-            )
+        return history_page(
+            ExpenseService(db).list_expenses, request, vehicle_id, category=category
         )
 
     @app.post("/api/vehicles/{vehicle_id}/expenses", status_code=201)
@@ -260,9 +339,59 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
             status_code=201,
         )
 
+    @app.put("/api/expenses/{expense_id}")
+    def update_expense(
+        expense_id: str, body: ExpenseCreate, db: Session = session_dependency
+    ) -> JSONResponse:
+        values = body.model_dump()
+        values["date_"] = values.pop("date")
+        return resource(call(ExpenseService(db).update_expense, expense_id=expense_id, **values))
+
     @app.delete("/api/expenses/{expense_id}")
     def delete_expense(expense_id: str, db: Session = session_dependency) -> JSONResponse:
         return resource(ExpenseService(db).delete_expense(expense_id))
+
+    @app.get("/api/reminders")
+    def reminders(
+        vehicle_id: str | None = None,
+        include_inactive: str = "false",
+        db: Session = session_dependency,
+    ) -> JSONResponse:
+        return resource(
+            ReminderService(db).list(
+                vehicle_identifier=vehicle_id,
+                include_inactive=boolean(include_inactive, "include_inactive"),
+            )
+        )
+
+    @app.post("/api/vehicles/{vehicle_id}/reminders", status_code=201)
+    def create_reminder(
+        vehicle_id: str, body: ReminderInput, db: Session = session_dependency
+    ) -> JSONResponse:
+        return resource(
+            call(ReminderService(db).create, vehicle_identifier=vehicle_id, **body.model_dump()),
+            status_code=201,
+        )
+
+    @app.put("/api/reminders/{reminder_id}")
+    def update_reminder(
+        reminder_id: str, body: ReminderInput, db: Session = session_dependency
+    ) -> JSONResponse:
+        return resource(
+            call(ReminderService(db).update, reminder_id=reminder_id, **body.model_dump())
+        )
+
+    @app.post("/api/reminders/{reminder_id}/complete")
+    def complete_reminder(
+        reminder_id: str, body: ReminderComplete, db: Session = session_dependency
+    ) -> JSONResponse:
+        return resource(
+            call(ReminderService(db).complete, reminder_id=reminder_id, **body.model_dump())
+        )
+
+    @app.delete("/api/reminders/{reminder_id}")
+    def delete_reminder(reminder_id: str, db: Session = session_dependency) -> JSONResponse:
+        return resource(ReminderService(db).delete(reminder_id))
 
     @app.get("/api/summary")
     def summary(
@@ -292,6 +421,9 @@ def create_app(database_path: Path | None = None, port: int = 8765) -> FastAPI:
                     "categories": service.category_breakdown(**scope),
                     "rolling": service.rolling_averages(**scope),
                     "mpg": mpg,
+                    "mpg_context": CalculationService(db).mpg_context(vehicle_id)
+                    if vehicle_id
+                    else None,
                 }
             )
         )

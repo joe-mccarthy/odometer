@@ -35,6 +35,7 @@ class ExpenseRepository:
         date_to: date | None = None,
         limit: int | None = 50,
         ascending: bool = False,
+        offset: int = 0,
     ) -> list[Expense]:
         """Return expenses matching optional filters."""
         statement = select(Expense)
@@ -47,16 +48,15 @@ class ExpenseRepository:
         if date_to is not None:
             statement = statement.where(Expense.date <= date_to)
 
+        if offset < 0 or (limit is not None and not 1 <= limit <= 200):
+            raise ValueError("Use offset >= 0 and limit 1..200.")
+        if date_from is not None and date_to is not None and date_from > date_to:
+            raise ValueError("date_from must not follow date_to.")
         if ascending:
-            statement = statement.order_by(
-                col(Expense.date), col(Expense.odometer_miles), col(Expense.created_at)
-            )
+            statement = statement.order_by(col(Expense.date), col(Expense.id))
         else:
-            statement = statement.order_by(
-                col(Expense.date).desc(),
-                col(Expense.odometer_miles).desc(),
-                col(Expense.created_at).desc(),
-            )
+            statement = statement.order_by(col(Expense.date).desc(), col(Expense.id).desc())
+        statement = statement.offset(offset)
         if limit is not None:
             statement = statement.limit(limit)
         return list(self.session.exec(statement).all())

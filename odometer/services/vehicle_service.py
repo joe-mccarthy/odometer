@@ -3,9 +3,10 @@
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from sqlmodel import Session
+from sqlmodel import Session, col, delete
 
 from odometer.models.enums import VehicleStatus
+from odometer.models.reminder import Reminder
 from odometer.models.vehicle import Vehicle
 from odometer.repositories.expense_repository import ExpenseRepository
 from odometer.repositories.fuel_repository import FuelRepository
@@ -22,6 +23,7 @@ class VehicleDeletionResult:
     registration: str
     expense_count: int
     fuel_log_count: int
+    reminder_count: int = 0
 
 
 class VehicleService:
@@ -136,6 +138,9 @@ class VehicleService:
             vehicle_id,
             commit=False,
         )
+        reminders = self.session.exec(
+            delete(Reminder).where(col(Reminder.vehicle_id) == vehicle_id)
+        )
         self.repository.delete(vehicle, commit=False)
         self.session.commit()
         return VehicleDeletionResult(
@@ -143,4 +148,5 @@ class VehicleService:
             registration=registration,
             expense_count=expense_count,
             fuel_log_count=fuel_log_count,
+            reminder_count=getattr(reminders, "rowcount", 0),
         )

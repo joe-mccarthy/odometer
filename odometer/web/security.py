@@ -68,7 +68,7 @@ class LocalBoundary:
             rejection = error(403, "forbidden_origin", "A matching Origin is required")
         if rejection is None and mutation and headers.get(b"x-odometer-request") != ["1"]:
             rejection = error(403, "forbidden_request", "X-Odometer-Request: 1 is required")
-        if rejection is None and scope["method"] in {"POST", "PATCH"}:
+        if rejection is None and scope["method"] in {"POST", "PATCH", "PUT"}:
             media = headers.get(b"content-type", [])
             if len(media) != 1 or media[0].split(";", 1)[0].strip().lower() != "application/json":
                 rejection = error(415, "unsupported_media_type", "Use application/json")

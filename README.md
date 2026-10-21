@@ -216,12 +216,20 @@ are unsupported. Any process running as your local user can access your data.
 The dashboard supports vehicle context, fuel and expenses, summaries, tank updates,
 sold/archive status and confirmed deletion. Money entry is GBP; storage remains
 integer pence. MPG uses full-to-full imperial gallons including intervening partial
-fills. Export and online backup are available through the CLI commands below.
+fills. Export and online backup are available through Data tools and the CLI commands below.
 
-Current limits: record lists show at most the newest 1,000 rows; no general record
-editing, reactivation, import or browser export/backup controls are provided.
-Chromium has been tested; Firefox/WebKit, native devices, screen readers and large
-datasets remain unverified. See [browser smoke steps](tests/browser/smoke.md).
+Record histories use independent 50-row pages, newest date then ID first. Apply
+inclusive date filters (and expense category), or Clear filters. Context and local
+record changes restart paging; year affects summaries only. Refresh keeps filters
+and starts page one after external changes; traversal is stable on unchanged data.
+Summaries always use complete history. API lists accept `offset` (default 0),
+`limit` (default 50, maximum 200), and optional `page=true` for an object containing
+`items`, `offset`, `limit` and `has_next`; ordinary calls retain array responses.
+CLI `fuel list` and `expense list` also accept `--offset` and `--limit` (1–200).
+
+Current limits: reactivation is not provided.
+Chromium has been tested, including bounded history traversal beyond 1,000 rows;
+Firefox/WebKit, native devices and screen readers remain unverified. See [browser smoke steps](tests/browser/smoke.md).
 Before a manual file-copy backup or restore, stop the web server as well as CLI/TUI
 sessions. The `backup` command supports a running database through SQLite online
 backup; restore only while all Odometer processes are stopped.
@@ -394,3 +402,73 @@ The release includes:
 Odometer is open source and licensed under the GNU General Public License v3.0 only (GPL-3.0-only).
 
 See the [LICENSE](LICENSE) file for details.
+
+### Browser data downloads
+
+Data tools downloads full version-1 JSON, Vehicles/Fuel/Expenses CSV, or an
+integrity-checked SQLite online backup. Files include all vehicles (including
+sold and archived) regardless of dashboard filters, and contain private data.
+JSON/CSV contain only vehicles, fuel and expenses; SQLite backups retain all
+persisted tables, including reminders. Downloads stay local and accept no server
+filesystem paths. Restore a backup only while all Odometer processes are stopped.
+The server prepares each completed file in a private temporary directory and
+removes it before returning bytes; preparation requires memory for the file.
+
+### Local reminders
+
+`odometer reminder add --vehicle AB12CDE --title "Annual service" --category SERVICE --due-date 2027-01-20 --due-mileage 42000`
+creates a per-vehicle occurrence. `reminder list` shows status, thresholds and the
+latest dated fuel/expense mileage with its source; `--upcoming` narrows to due,
+upcoming and unknown mileage status. Default lists exclude sold/archived vehicles;
+`--include-inactive` reveals their retained reminders and history.
+
+Due means date is today/past **or** latest recorded mileage reaches the threshold.
+Upcoming means not due and within **30 calendar days or 1,000 miles**, inclusive.
+Dates use the local calendar. Mileage observations are selected by record date then
+ID across fuel and expenses, rather than maximum miles. Initial mileage alone is
+an undated baseline and cannot establish mileage status. Observations older than
+**90 days** remain usable but are labeled stale; an unreached stale threshold is
+unknown unless a date establishes due/upcoming or known mileage establishes due.
+
+`reminder edit ID --title "Annual service" --category SERVICE --due-date 2027-02-20`
+replaces the title/category/thresholds while preserving ID/vehicle; omitted
+thresholds are cleared. Supply at least one threshold. `reminder complete ID`
+retains completed history. Optional `--next-due-date` and/or `--next-due-mileage`
+create one linked next occurrence atomically. There is no inferred recurrence.
+`reminder delete ID` asks for confirmation. Browser Reminders offers the same
+operations, grouped statuses, retained completion history and mileage provenance.
+No email, push, account or external lookup is involved. SQLite backups preserve
+all occurrences; version-1 JSON and CSV still contain vehicles/fuel/expenses only.
+
+Correct records with `odometer fuel edit RECORD_ID --amount 45.01 --partial`
+or `odometer expense edit RECORD_ID --amount 12.34 --clear-mileage`.
+Only supplied CLI fields change; pass an empty string to clear optional text.
+The browser offers Edit beside each record, and the TUI uses `e` on a selected row.
+Corrections preserve IDs and vehicle relationships and validate neighboring fuel readings.
+HTTP clients can replace editable fields with `PUT /api/fuel/{id}` and
+`PUT /api/expenses/{id}` using the same local Origin and request headers as creation.
+
+### Import a version-1 JSON export
+
+Preview first: `odometer import export.json --conflict-policy reject --dry-run`.
+Apply: `odometer import export.json --conflict-policy reject --backup before-import.db`.
+The backup option uses the online SQLite backup service and aborts import if it fails.
+For a new database, omit `--backup`; there is no existing database to back up.
+
+Import is append-only: the required `reject` policy rejects duplicate IDs within
+an entity, existing target IDs and duplicate active registrations. It never merges,
+replaces or regenerates IDs. Every fuel/expense must reference a vehicle in the
+file. Unsupported versions, schema errors and domain errors reject the entire
+file with located diagnostics and intended counts. Commit rechecks conflicts under
+a writer lock and writes all three entities in one transaction. Dry runs never
+initialize the target, write records or create a backup. Dates, IDs, nulls, integer
+pence and full/partial fills are preserved, including fuel-expense deduplication.
+Version 1 covers vehicles, fuel and expenses only; it does not restore reminders.
+Use SQLite backups for a full database snapshot. Keep exports and backups private.
+
+HTTP monetary integer fields retain numeric values and include additive `_exact`
+string companions for lossless browser display, including aggregate totals and
+rounded monthly averages beyond int64. Fuel PUT preserves stored full/partial
+state when `is_full_tank` is omitted; explicit true/false changes it. Vehicle
+deletion also removes active and completed reminders; all confirmation surfaces
+disclose this cascade and results include the reminder count.

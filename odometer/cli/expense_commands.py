@@ -62,7 +62,10 @@ def list_expenses(
     ] = None,
     date_from: Annotated[str | None, typer.Option("--from", help="Start date yyyy-mm-dd.")] = None,
     date_to: Annotated[str | None, typer.Option("--to", help="End date yyyy-mm-dd.")] = None,
-    limit: Annotated[int, typer.Option("--limit", help="Maximum rows.")] = 50,
+    limit: Annotated[
+        int, typer.Option("--limit", min=1, max=200, help="Maximum rows (1–200).")
+    ] = 50,
+    offset: Annotated[int, typer.Option("--offset", min=0, help="Rows to skip.")] = 0,
 ) -> None:
     """List expenses."""
     try:
@@ -74,6 +77,7 @@ def list_expenses(
                 date_from=parse_optional_date(date_from),
                 date_to=parse_optional_date(date_to),
                 limit=limit,
+                offset=offset,
             )
             vehicle_service = VehicleService(session)
             registrations = {
@@ -127,3 +131,41 @@ def delete_expense(
         handle_expected_error(exc)
 
     console.print(f"Deleted expense {expense_id}.")
+
+
+@app.command("edit")
+def edit_expense(
+    record_id: Annotated[str, typer.Argument(help="Record id.")],
+    amount: Annotated[str | None, typer.Option("--amount")] = None,
+    date_value: Annotated[str | None, typer.Option("--date")] = None,
+    mileage: Annotated[int | None, typer.Option("--mileage")] = None,
+    category: Annotated[str | None, typer.Option("--category")] = None,
+    description: Annotated[str | None, typer.Option("--description")] = None,
+    vendor: Annotated[str | None, typer.Option("--vendor")] = None,
+    notes: Annotated[str | None, typer.Option("--notes")] = None,
+    clear_mileage: Annotated[bool, typer.Option("--clear-mileage")] = False,
+) -> None:
+    """Correct supplied fields while retaining record identity."""
+    try:
+        changes: dict[str, object] = {}
+        if amount is not None:
+            changes["amount_pence"] = parse_money_to_pence(amount)
+        if date_value is not None:
+            changes["date_"] = parse_date(date_value)
+        if mileage is not None:
+            changes["odometer_miles"] = mileage
+        if category is not None:
+            changes["category"] = category
+        if description is not None:
+            changes["description"] = description or None
+        if vendor is not None:
+            changes["vendor"] = vendor or None
+        if notes is not None:
+            changes["notes"] = notes or None
+        if clear_mileage:
+            changes["odometer_miles"] = None
+        with cli_session() as session:
+            ExpenseService(session).update_expense(record_id, **changes)
+    except (OdometerError, MoneyParseError, ValueError) as exc:
+        handle_expected_error(exc)
+    console.print("Record updated.")
