@@ -284,3 +284,83 @@ def test_cli_valid_int64_boundary_import(bundle, monkeypatch):
             (0,),
             (1,),
         ]
+
+
+PERSISTED_FIELDS = [
+    (table, field)
+    for table, model in (("vehicles", Vehicle), ("fuel", FuelLog), ("expenses", Expense))
+    for field in model.model_fields
+]
+
+
+@pytest.mark.parametrize("table,field", PERSISTED_FIELDS)
+@pytest.mark.parametrize("existing", [False, True])
+def test_all_persisted_fields_required_before_side_effects(bundle, table, field, existing):
+    from odometer.db.bootstrap import initialise_database
+
+    source, target, data = bundle
+    target = target.parent / "missing-parent" / target.name
+    if existing:
+        initialise_database(target)
+    before = target.read_bytes() if existing else None
+    del data[table][0][field]
+    source.write_text(json.dumps(data))
+    backup = target.parent / "backup.db"
+    for dry_run in (True, False):
+        result = import_data(
+            source, target, conflict_policy="reject", dry_run=dry_run, backup=backup
+        )
+        assert f"{table}[0].{field}: persisted field is required" in result.errors
+        assert not backup.exists()
+        if existing:
+            assert target.read_bytes() == before
+        else:
+            assert not target.parent.exists()
+
+
+@pytest.mark.parametrize("backdated", [False, True])
+def test_normal_logging_histories_roundtrip_losslessly(tmp_path, backdated):
+    from sqlmodel import Session, create_engine
+
+    from odometer.db.bootstrap import initialise_database
+    from odometer.services.fuel_service import FuelService
+
+    source_db = tmp_path / "source.db"
+    initialise_database(source_db)
+    with Session(create_engine(f"sqlite:///{source_db}")) as session:
+        vehicle = Vehicle(
+            registration="AB12 CDE",
+            normalised_registration="AB12CDE",
+            initial_mileage=0,
+            fuel_tank_litres=60,
+        )
+        session.add(vehicle)
+        session.commit()
+        session.refresh(vehicle)
+        service = FuelService(session)
+        for mileage, identifier, full in [(100, "z", True), (200, "a", False), (300, "m", True)]:
+            row = service.add_fuel_log(
+                vehicle_identifier=vehicle.id,
+                litres=20,
+                total_cost_pence=3000,
+                odometer_miles=mileage,
+                date_=date(2026, 1, 1 if backdated and mileage == 300 else 2),
+                is_full_tank=full,
+            )
+            # Random UUID order and tied timestamps provide no insertion chronology.
+            row.id = identifier
+            session.add(row)
+            session.commit()
+        # Notes-only corrections of such persisted histories must still work.
+        service.update_fuel_log("a", notes="preserved partial")
+    source = tmp_path / "input.json"
+    export_data(source_db, source)
+    target = tmp_path / "target.db"
+    assert not import_data(source, target, conflict_policy="reject", dry_run=True).errors
+    assert not target.exists()
+    assert not import_data(source, target, conflict_policy="reject").errors
+    output = tmp_path / "output.json"
+    export_data(target, output)
+    assert json.loads(output.read_text()) == json.loads(source.read_text())
+    with sqlite3.connect(target) as db:
+        assert db.execute("SELECT is_full_tank FROM fuellog WHERE id='a'").fetchone() == (0,)

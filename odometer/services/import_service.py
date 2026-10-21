@@ -58,6 +58,12 @@ def preview_import(source: Path, target: Path, conflict_policy: str) -> ImportPr
                     raise ValueError("expected an object")
                 if value.keys() - model.model_fields.keys():
                     raise ValueError("unknown fields")
+                missing = model.model_fields.keys() - value.keys()
+                if missing:
+                    result.errors.extend(
+                        f"{location}.{key}: persisted field is required" for key in sorted(missing)
+                    )
+                    continue
                 if not isinstance(value.get("id"), str) or not value["id"].strip():
                     raise ValueError("nonempty id is required")
                 if value["id"] in ids:
@@ -114,7 +120,9 @@ def preview_import(source: Path, target: Path, conflict_policy: str) -> ImportPr
     for vehicle in vehicles.values():
         try:
             validate_fuel_history(
-                vehicle, [r for r in result.rows["fuel"] if r.vehicle_id == vehicle.id]
+                vehicle,
+                [r for r in result.rows["fuel"] if r.vehicle_id == vehicle.id],
+                check_chronology=False,
             )
         except (ValueError, InvalidFuelLogError) as exc:
             result.errors.append(f"fuel[{vehicle.id}]: {exc}")

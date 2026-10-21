@@ -10,9 +10,19 @@ from odometer.services.exceptions import InvalidExpenseError, InvalidFuelLogErro
 
 
 def validate_fuel_history(
-    vehicle: Vehicle, history: list[FuelLog], *, baseline: list[FuelLog] | None = None
+    vehicle: Vehicle,
+    history: list[FuelLog],
+    *,
+    baseline: list[FuelLog] | None = None,
+    check_chronology: bool = True,
 ) -> None:
-    """Validate all candidate records before a caller persists any of them."""
+    """Validate rows and, for corrections, prevent new chronology conflicts.
+
+    Logging permits arbitrary dates while requiring increasing mileage at insertion.
+    A portable snapshot cannot recover insertion order from random IDs or timestamps
+    (which may tie). Imports therefore validate every row without imposing date/ID
+    chronology. Corrections retain their stricter comparison with persisted history.
+    """
     # Corrections may preserve an existing conflict, but cannot introduce or alter one.
     existing_edges = set()
     ordered_baseline = sorted(baseline or [], key=lambda item: (item.date, item.id))
@@ -47,7 +57,8 @@ def validate_fuel_history(
         ):
             raise InvalidFuelLogError("Fuel price must be greater than zero.")
         if (
-            previous is not None
+            check_chronology
+            and previous is not None
             and row.odometer_miles < previous.odometer_miles
             and (
                 previous.id,
