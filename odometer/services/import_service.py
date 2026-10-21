@@ -72,6 +72,11 @@ def preview_import(source: Path, target: Path, conflict_policy: str) -> ImportPr
                 row = model.model_validate(parsed.model_dump())
                 for key in model.model_fields:
                     item = getattr(row, key)
+                    # bool is a separate JSON type, although it subclasses int in Python.
+                    if type(item) is int and not -(2**63) <= item <= 2**63 - 1:
+                        result.errors.append(
+                            f"{location}.{key}: must fit SQLite signed 64-bit integer range"
+                        )
                     if isinstance(item, float) and not math.isfinite(item):
                         raise ValueError(f"{key}: must be finite")
                 result.rows[name].append(row)

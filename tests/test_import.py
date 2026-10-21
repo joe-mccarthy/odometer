@@ -175,3 +175,112 @@ def test_conflicts_revalidated_after_preview(bundle, monkeypatch):
     assert import_data(source, target, conflict_policy="reject").errors
     with sqlite3.connect(target) as db:
         assert db.execute("SELECT count(*) FROM vehicle").fetchone() == (1,)
+
+
+INTEGER_FIELDS = [
+    ("vehicles", "year"),
+    ("vehicles", "initial_mileage"),
+    ("vehicles", "purchase_price_pence"),
+    ("fuel", "odometer_miles"),
+    ("fuel", "total_cost_pence"),
+    ("expenses", "amount_pence"),
+    ("expenses", "odometer_miles"),
+]
+
+
+@pytest.mark.parametrize("table,field", INTEGER_FIELDS)
+@pytest.mark.parametrize("value", [2**63, -(2**63) - 1])
+@pytest.mark.parametrize("existing", [False, True])
+def test_int64_overflow_rejected_before_side_effects(bundle, table, field, value, existing):
+    from odometer.db.bootstrap import initialise_database
+    from odometer.services.import_service import preview_import
+
+    source, target, data = bundle
+    target = target.parent / "missing-parent" / target.name
+    if existing:
+        initialise_database(target)
+    before = target.read_bytes() if existing else None
+    data[table][0][field] = value
+    source.write_text(json.dumps(data))
+    backup = target.parent / "backup.db"
+    preview = preview_import(source, target, "reject")
+    assert any(f"{table}[0].{field}:" in e and "signed 64-bit" in e for e in preview.errors)
+    for dry_run in (True, False):
+        result = import_data(
+            source, target, conflict_policy="reject", dry_run=dry_run, backup=backup
+        )
+        assert result.errors == preview.errors
+        assert not backup.exists()
+        if existing:
+            assert target.read_bytes() == before
+        else:
+            assert not target.exists()
+            assert not target.parent.exists()
+
+
+@pytest.mark.parametrize("table,field", INTEGER_FIELDS)
+@pytest.mark.parametrize("value", [-(2**63), 2**63 - 1])
+def test_int64_boundaries_respect_domain_rules(bundle, table, field, value):
+    source, target, data = bundle
+    # One fuel row keeps the mileage boundary independent of history ordering.
+    data["fuel"] = data["fuel"][:1]
+    data[table][0][field] = value
+    if field == "initial_mileage" and value >= 0:
+        data["fuel"][0]["odometer_miles"] = value
+        data["expenses"][0]["odometer_miles"] = value
+    source.write_text(json.dumps(data))
+    result = import_data(source, target, conflict_policy="reject", dry_run=True)
+    valid = value >= 0 or field == "year"
+    assert bool(result.errors) is not valid
+    assert not any("signed 64-bit" in e for e in result.errors)
+    applied = import_data(source, target, conflict_policy="reject")
+    assert applied.errors == result.errors
+    if valid:
+        output = target.with_suffix(".json")
+        export_data(target, output)
+        assert json.loads(output.read_text())[table][0][field] == value
+    else:
+        assert not target.exists()
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_cli_int64_overflow_is_located_and_has_no_side_effects(bundle, monkeypatch, dry_run):
+    source, target, data = bundle
+    target = target.parent / "missing-parent" / target.name
+    monkeypatch.setenv("ODOMETER_DB_PATH", str(target))
+    data["expenses"][0]["amount_pence"] = 9223372036854775808
+    source.write_text(json.dumps(data))
+    backup = target.parent / "backup.db"
+    args = ["import", str(source), "--conflict-policy", "reject", "--backup", str(backup)]
+    if dry_run:
+        args.append("--dry-run")
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 1
+    assert "expenses[0].amount_pence:" in result.output
+    assert "signed 64-bit" in result.output
+    assert not target.parent.exists()
+
+
+@pytest.mark.parametrize("table,field", INTEGER_FIELDS)
+def test_integer_fields_still_reject_booleans(bundle, table, field):
+    source, target, data = bundle
+    data[table][0][field] = True
+    source.write_text(json.dumps(data))
+    result = import_data(source, target, conflict_policy="reject")
+    assert result.errors
+    assert not target.exists()
+
+
+def test_cli_valid_int64_boundary_import(bundle, monkeypatch):
+    source, target, data = bundle
+    monkeypatch.setenv("ODOMETER_DB_PATH", str(target))
+    data["expenses"][0]["amount_pence"] = 2**63 - 1
+    source.write_text(json.dumps(data))
+    result = CliRunner().invoke(app, ["import", str(source), "--conflict-policy", "reject"])
+    assert result.exit_code == 0, result.output
+    with sqlite3.connect(target) as db:
+        assert db.execute("SELECT amount_pence FROM expense").fetchone() == (2**63 - 1,)
+        assert db.execute("SELECT DISTINCT is_full_tank FROM fuellog ORDER BY 1").fetchall() == [
+            (0,),
+            (1,),
+        ]
